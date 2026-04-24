@@ -3,11 +3,13 @@ import {
   Users, Plus, Search, Phone, Mail, MapPin,
   Calendar, Briefcase, Star, FileText, Download,
   X, ChevronRight, Shield, AlertCircle, CheckCircle,
-  Clock, UserX, Filter,
+  Clock, UserX, Filter, KeyRound, UserCheck, Loader2,
 } from 'lucide-react'
 import { ORGS } from '../lib/mockData'
 import { COL, addEmployee, updateEmployee } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
+import { functions } from '../lib/firebase'
+import { httpsCallable } from 'firebase/functions'
 import clsx from 'clsx'
 
 // ─── Work mode config ─────────────────────────────────────────────────────────
@@ -190,7 +192,125 @@ function EmployeeRow({ emp, onClick, showUnit = false, hideWorkMode = false, hid
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────────
+// ─── Account management modal ─────────────────────────────────────────────────
+function AccountModal({ emp, onClose }) {
+  const hasAccount = !!emp.authUid
+  const [tempPw,   setTempPw]   = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [success,  setSuccess]  = useState(false)
+  const [error,    setError]    = useState('')
+
+  const createAccount  = httpsCallable(functions, 'createEmployeeAccount')
+  const resetPassword  = httpsCallable(functions, 'resetEmployeePassword')
+
+  const handleCreate = async () => {
+    if (tempPw.length < 4) { setError('預設密碼至少需要 4 個字元'); return }
+    setLoading(true); setError('')
+    try {
+      const result = await createAccount({
+        employeeId:  emp.id.toLowerCase(),
+        displayName: emp.name,
+        tempPassword: tempPw,
+        orgId:       emp.orgId,
+        role:        emp.workMode === 'office' ? 'admin' : 'employee',
+      })
+      await updateEmployee(emp.id, { authUid: result.data.uid })
+      setSuccess(true)
+    } catch (e) {
+      setError(e.message || '建立失敗，請稍後再試')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleReset = async () => {
+    if (tempPw.length < 4) { setError('臨時密碼至少需要 4 個字元'); return }
+    setLoading(true); setError('')
+    try {
+      await resetPassword({ employeeId: emp.id.toLowerCase(), tempPassword: tempPw })
+      setSuccess(true)
+    } catch (e) {
+      setError(e.message || '重設失敗，請稍後再試')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4"
+        onClick={e => e.stopPropagation()}>
+
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <KeyRound size={18} className="text-brand-600" />
+            {hasAccount ? '重設登入密碼' : '建立登入帳號'}
+          </h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <X size={16} />
+          </button>
+        </div>
+
+        {success ? (
+          <div className="text-center py-4 space-y-2">
+            <CheckCircle size={40} className="text-green-500 mx-auto" />
+            <p className="font-semibold text-gray-800">
+              {hasAccount ? '密碼已重設' : '帳號建立成功'}
+            </p>
+            <p className="text-sm text-gray-500">
+              員工編號：<span className="font-mono font-bold">{emp.id.toUpperCase()}</span>
+              <br />臨時密碼：<span className="font-mono font-bold">{tempPw}</span>
+            </p>
+            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg p-2 mt-2">
+              請將此臨時密碼交給員工，首次登入後將強制更改密碼
+            </p>
+            <button className="btn-primary w-full justify-center mt-3" onClick={onClose}>完成</button>
+          </div>
+        ) : (
+          <>
+            <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
+              <p className="text-gray-500">員工姓名</p>
+              <p className="font-semibold text-gray-900">{emp.name}</p>
+              <p className="text-gray-500 mt-1.5">登入帳號</p>
+              <p className="font-mono text-brand-700 font-bold">{emp.id.toUpperCase()}</p>
+            </div>
+
+            <div>
+              <label className="label">{hasAccount ? '新臨時密碼' : '預設密碼'}</label>
+              <input
+                type="text"
+                className="input font-mono tracking-widest"
+                value={tempPw}
+                onChange={e => setTempPw(e.target.value)}
+                placeholder={hasAccount ? '輸入新的臨時密碼' : '建議使用身分證後四碼'}
+                autoFocus
+              />
+              <p className="text-xs text-gray-400 mt-1">員工首次登入後會被要求更改密碼</p>
+            </div>
+
+            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+            <div className="flex gap-3 pt-1">
+              <button className="btn-secondary flex-1 justify-center" onClick={onClose} disabled={loading}>取消</button>
+              <button
+                className="btn-primary flex-1 justify-center"
+                onClick={hasAccount ? handleReset : handleCreate}
+                disabled={loading || !tempPw}
+              >
+                {loading ? <Loader2 size={15} className="animate-spin" /> : <UserCheck size={15} />}
+                {loading ? '處理中...' : hasAccount ? '確認重設' : '建立帳號'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DetailModal({ emp, onClose, onEdit }) {
+  const [showAccount, setShowAccount] = useState(false)
   const sc      = STATUS_CONFIG[emp.status] || STATUS_CONFIG.active
   const StatusIcon = sc.icon
   const org     = ORGS.find(o => o.id === emp.orgId)
@@ -367,15 +487,27 @@ function DetailModal({ emp, onClose, onEdit }) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t flex gap-3">
-          <button className="btn-secondary flex-1 justify-center">
-            <FileText size={15} /> 匯出人事表
-          </button>
-          <button className="btn-primary flex-1 justify-center" onClick={onEdit}>
-            編輯資料
-          </button>
+        <div className="px-6 py-4 border-t space-y-2">
+          <div className="flex gap-3">
+            <button className="btn-secondary flex-1 justify-center" onClick={() => setShowAccount(true)}>
+              <KeyRound size={15} />
+              {emp.authUid ? '重設密碼' : '建立帳號'}
+            </button>
+            <button className="btn-primary flex-1 justify-center" onClick={onEdit}>
+              編輯資料
+            </button>
+          </div>
+          {emp.authUid && (
+            <p className="text-xs text-center text-green-600 flex items-center justify-center gap-1">
+              <UserCheck size={12} /> 已有登入帳號（{emp.id.toUpperCase()}）
+            </p>
+          )}
         </div>
       </div>
+
+      {showAccount && (
+        <AccountModal emp={emp} onClose={() => setShowAccount(false)} />
+      )}
     </div>
   )
 }

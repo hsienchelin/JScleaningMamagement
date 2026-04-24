@@ -70,7 +70,7 @@ export default function LoginPage() {
                   className="input pr-10"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="預設密碼：身分證後六碼"
+                  placeholder="預設密碼：身分證後四碼"
                   required
                   autoComplete="current-password"
                 />
@@ -82,7 +82,7 @@ export default function LoginPage() {
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-1.5">首次登入請使用身分證後六碼作為密碼</p>
+              <p className="text-xs text-gray-400 mt-1.5">首次登入請使用身分證後四碼作為密碼</p>
             </div>
 
             {/* 錯誤訊息 */}

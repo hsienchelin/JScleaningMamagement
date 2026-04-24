@@ -16,8 +16,9 @@ import SettingsPage   from './pages/SettingsPage'
 import EmployeesPage    from './pages/EmployeesPage'
 import SalaryPage       from './pages/SalaryPage'
 import DailyReportPage  from './pages/DailyReportPage'
-import ARPage           from './pages/ARPage'
-import HistoryPage      from './pages/HistoryPage'
+import ARPage             from './pages/ARPage'
+import HistoryPage        from './pages/HistoryPage'
+import ChangePasswordPage from './pages/ChangePasswordPage'
 
 // ─── Error boundary ───────────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -60,13 +61,8 @@ class ErrorBoundary extends Component {
 }
 
 // ─── Protected route ──────────────────────────────────────────────────────────
-// 資料建置模式：暫時關閉登入驗證，直接進入系統輸入初始資料
-// 資料建好後將此行改為 false，即可恢復正常登入流程
-const SETUP_MODE = true
-
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
-  if (SETUP_MODE) return children   // 建置期間直接通過
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="flex flex-col items-center gap-3 text-gray-400">
@@ -75,7 +71,10 @@ function ProtectedRoute({ children }) {
       </div>
     </div>
   )
-  return user ? children : <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace />
+  // 首次登入 or 管理員重設密碼後，強制前往改密碼頁
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />
+  return children
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -84,6 +83,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+      <Route path="/change-password" element={<ChangePasswordPage />} />
       <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard"  element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
