@@ -1,0 +1,24 @@
+# 環境變數（含 Firebase API Key，禁止上傳）
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# 依賴套件
+node_modules/
+
+# 建置輸出
+dist/
+dist-ssr/
+
+# Claude Code 本機設定
+.claude/
+
+# 編輯器
+.DS_Store
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
