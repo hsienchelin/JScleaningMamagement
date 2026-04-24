@@ -53,9 +53,11 @@ export default function Sidebar({ collapsed, onToggle }) {
     )}>
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-700">
-        <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center shrink-0 text-sm font-bold">
-          清
-        </div>
+        <img
+          src="/logo.png"
+          alt="Logo"
+          className="w-8 h-8 rounded-lg shrink-0 object-cover"
+        />
         {!collapsed && (
           <div className="min-w-0">
             <p className="text-sm font-bold truncate">清潔 ERP</p>
