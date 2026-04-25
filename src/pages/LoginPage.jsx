@@ -25,16 +25,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-900 via-brand-800 to-brand-700 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl">
-            <span className="text-3xl font-bold text-brand-700">清</span>
-          </div>
-          <h1 className="text-2xl font-bold text-white">清潔 ERP 系統</h1>
-          <p className="text-brand-300 text-sm mt-1">佳翔 & 哲欣 雲端管理後台</p>
+          <img src="/logo.png" alt="Logo" className="w-20 h-20 rounded-2xl mx-auto mb-4 shadow-xl object-cover" />
+          <h1 className="text-2xl font-bold text-gray-900">清潔 ERP 系統</h1>
+          <p className="text-gray-400 text-sm mt-1">佳翔 & 哲欣 雲端管理後台</p>
         </div>
 
         {/* Card */}
@@ -108,7 +106,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-brand-400 text-xs mt-6">
+        <p className="text-center text-gray-400 text-xs mt-6">
           © 2025 清潔 ERP — 佳翔 & 哲欣
         </p>
       </div>

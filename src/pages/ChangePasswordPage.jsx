@@ -73,16 +73,14 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-900 via-brand-800 to-brand-700 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
 
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl">
-            <ShieldCheck size={32} className="text-brand-600" />
-          </div>
-          <h1 className="text-2xl font-bold text-white">設定新密碼</h1>
-          <p className="text-brand-300 text-sm mt-1">
+          <img src="/logo.png" alt="Logo" className="w-20 h-20 rounded-2xl mx-auto mb-4 shadow-xl object-cover" />
+          <h1 className="text-2xl font-bold text-gray-900">設定新密碼</h1>
+          <p className="text-gray-400 text-sm mt-1">
             {user?.employeeId
               ? `員工編號：${user.employeeId.toUpperCase()}`
               : '首次登入，請設定您的密碼'}
@@ -183,7 +181,7 @@ export default function ChangePasswordPage() {
           </form>
         </div>
 
-        <p className="text-center text-brand-400 text-xs mt-6">
+        <p className="text-center text-gray-400 text-xs mt-6">
           © 2025 清潔 ERP — 佳翔 & 哲欣
         </p>
       </div>
