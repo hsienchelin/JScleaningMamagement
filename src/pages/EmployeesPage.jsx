@@ -581,9 +581,9 @@ function AddModal({ onClose, allSites }) {
   const isStationed = empType.workMode === 'stationed'
   const isOffice    = empType.workMode === 'office'
 
-  const base = Number(form.baseSalary) || 0
-  const pensionEmployerAmt = Math.round(base * (Number(form.laborPensionEmployerRate) || 0) / 100)
-  const pensionEmployeeAmt = Math.round(base * (Number(form.laborPensionEmployeeRate) || 0) / 100)
+  const pensionBase = Number(form.laborInsuredSalary) || 0
+  const pensionEmployerAmt = Math.round(pensionBase * (Number(form.laborPensionEmployerRate) || 0) / 100)
+  const pensionEmployeeAmt = Math.round(pensionBase * (Number(form.laborPensionEmployeeRate) || 0) / 100)
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr('請填寫姓名'); return }
@@ -777,8 +777,8 @@ function AddModal({ onClose, allSites }) {
                   {amt > 0 && (
                     <p className="text-xs text-gray-400 mt-1 ml-1">≈ ${amt.toLocaleString()} / 月</p>
                   )}
-                  {!base && form[rateKey] && (
-                    <p className="text-xs text-amber-500 mt-1 ml-1">請先填寫本薪</p>
+                  {!pensionBase && form[rateKey] && (
+                    <p className="text-xs text-amber-500 mt-1 ml-1">請先填寫勞保投保金額</p>
                   )}
                 </div>
               ))}
@@ -860,9 +860,9 @@ function EditModal({ emp, onClose, allSites }) {
   const isStationed = empType.workMode === 'stationed'
   const isOffice    = empType.workMode === 'office'
 
-  const base = Number(form.baseSalary) || 0
-  const pensionEmployerAmt = Math.round(base * (Number(form.laborPensionEmployerRate) || 0) / 100)
-  const pensionEmployeeAmt = Math.round(base * (Number(form.laborPensionEmployeeRate) || 0) / 100)
+  const pensionBase = Number(form.laborInsuredSalary) || 0
+  const pensionEmployerAmt = Math.round(pensionBase * (Number(form.laborPensionEmployerRate) || 0) / 100)
+  const pensionEmployeeAmt = Math.round(pensionBase * (Number(form.laborPensionEmployeeRate) || 0) / 100)
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr('請填寫姓名'); return }
@@ -1072,8 +1072,8 @@ function EditModal({ emp, onClose, allSites }) {
                   {amt > 0 && (
                     <p className="text-xs text-gray-400 mt-1 ml-1">≈ ${amt.toLocaleString()} / 月</p>
                   )}
-                  {!base && form[rateKey] && (
-                    <p className="text-xs text-amber-500 mt-1 ml-1">請先填寫本薪</p>
+                  {!pensionBase && form[rateKey] && (
+                    <p className="text-xs text-amber-500 mt-1 ml-1">請先填寫勞保投保金額</p>
                   )}
                 </div>
               ))}
