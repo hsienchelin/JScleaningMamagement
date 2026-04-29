@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Users, Plus, Search, Phone, Mail, MapPin,
   Calendar, Briefcase, Star, FileText, Download,
@@ -585,9 +585,21 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
   const { rates, labor, health } = useInsuranceSettings()
 
   const allBrackets = useMemo(() => {
-    const set = new Set([...labor.brackets, ...labor.partTime, ...health.brackets])
-    return [...set].sort((a, b) => a - b)
+    const s = new Set([...labor.brackets, ...labor.partTime, ...health.brackets])
+    return [...s].sort((a, b) => a - b)
   }, [labor, health])
+
+  // 輸入本薪後自動跳到對應級距（往上取最接近的級距）
+  // 部分工時最低不限；正職最低為基本工資
+  useEffect(() => {
+    if (!baseSalaryNum || !allBrackets.length) return
+    const target = form.isPartTime ? baseSalaryNum : Math.max(baseSalaryNum, rates.basicWage)
+    const matched = allBrackets.find(b => b >= target) || allBrackets[allBrackets.length - 1]
+    if (matched && matched !== form.insuredSalary) {
+      set('insuredSalary', matched)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseSalaryNum, form.isPartTime, allBrackets.length])
 
   const calc = calcAllInsurance({
     baseSalary: Number(form.insuredSalary) || baseSalaryNum,
