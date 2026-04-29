@@ -4,7 +4,7 @@
  */
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  getDocs, serverTimestamp,
+  getDoc, getDocs, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from './firebase'
 
@@ -26,6 +26,7 @@ export const COL = {
   WORK_ORDERS:        'workOrders',
   USERS:              'users',
   INVOICES:           'invoices',
+  SETTINGS:           'settings',
 }
 
 // ─── 員工編號自動產生（JS001, JS002, ...）────────────────────────────────────
@@ -219,4 +220,20 @@ export async function addInvoice(data) {
 
 export async function updateInvoice(id, data) {
   await updateDoc(doc(db, COL.INVOICES, id), { ...data, updatedAt: serverTimestamp() })
+}
+
+// ─── 系統設定（單一文件 docId 方式）─────────────────────────────────────────────
+// settings/payrollRates       — 費率（勞保 12.5%、健保 5.17%、職災 0.25%、平均眷口 1.56、基本工資、勞退 6%）
+// settings/healthBrackets     — { brackets: [29500, 30300, ...] }
+// settings/laborBrackets      — { brackets: [29500, ...], partTime: [11100, ...] }
+export async function getSettingsDoc(docId) {
+  const snap = await getDoc(doc(db, COL.SETTINGS, docId))
+  return snap.exists() ? snap.data() : null
+}
+
+export async function setSettingsDoc(docId, data) {
+  await setDoc(doc(db, COL.SETTINGS, docId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
 }

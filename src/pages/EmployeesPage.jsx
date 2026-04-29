@@ -7,9 +7,14 @@ import {
 } from 'lucide-react'
 import { ORGS } from '../lib/mockData'
 import { COL, addEmployee, updateEmployee } from '../lib/db'
-import { useCollection } from '../hooks/useCollection'
+import { useCollection, useDoc } from '../hooks/useCollection'
 import { functions } from '../lib/firebase'
 import { httpsCallable } from 'firebase/functions'
+import {
+  HEALTH_BRACKETS_2026, LABOR_BRACKETS_REGULAR_2026,
+  LABOR_BRACKETS_PARTTIME_2026, PAYROLL_RATES_2026,
+} from '../lib/insuranceBracketsSeed'
+import { calcAllInsurance } from '../utils/insuranceCalculator'
 import clsx from 'clsx'
 
 // ─── Work mode config ─────────────────────────────────────────────────────────
@@ -558,18 +563,185 @@ const EMP_TYPE_OPTIONS = [
   },
 ]
 
+// ─── 勞健保設定 hook ──────────────────────────────────────────────────────────
+function useInsuranceSettings() {
+  const { data: ratesDoc }  = useDoc('settings', 'payrollRates')
+  const { data: laborDoc }  = useDoc('settings', 'laborBrackets')
+  const { data: healthDoc } = useDoc('settings', 'healthBrackets')
+
+  const rates  = { ...PAYROLL_RATES_2026, ...(ratesDoc || {}) }
+  const labor  = laborDoc?.brackets?.length
+    ? { brackets: laborDoc.brackets, partTime: laborDoc.partTime || [] }
+    : { brackets: LABOR_BRACKETS_REGULAR_2026, partTime: LABOR_BRACKETS_PARTTIME_2026 }
+  const health = healthDoc?.brackets?.length
+    ? { brackets: healthDoc.brackets }
+    : { brackets: HEALTH_BRACKETS_2026 }
+
+  return { rates, labor, health }
+}
+
+// ─── 員工保險區塊（共用於 AddModal / EditModal）─────────────────────────────────
+function InsuranceSection({ form, set, baseSalaryNum }) {
+  const { rates, labor, health } = useInsuranceSettings()
+
+  const allBrackets = useMemo(() => {
+    const set = new Set([...labor.brackets, ...labor.partTime, ...health.brackets])
+    return [...set].sort((a, b) => a - b)
+  }, [labor, health])
+
+  const calc = calcAllInsurance({
+    baseSalary: Number(form.insuredSalary) || baseSalaryNum,
+    rates, laborBrackets: labor, healthBrackets: health,
+    insuredLabor: form.insuredLabor,
+    insuredHealth: form.insuredHealth,
+    isPartTime: form.isPartTime,
+    hasReceivedPension: form.hasReceivedPension,
+    dependentCount: Number(form.dependentCount) || 0,
+  })
+
+  return (
+    <div className="border-t border-gray-100 pt-4 space-y-4">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">勞健保 / 勞退（自動計算）</p>
+
+      {/* Checkboxes */}
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { key: 'insuredLabor',  label: '投保勞保' },
+          { key: 'insuredHealth', label: '投保健保' },
+          { key: 'isPartTime',    label: '部分工時' },
+        ].map(({ key, label }) => (
+          <label key={key} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100">
+            <input
+              type="checkbox"
+              checked={!!form[key]}
+              onChange={e => set(key, e.target.checked)}
+            />
+            <span className="text-sm">{label}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* 已領老年給付 + 投保金額 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">已領取勞保老年給付</label>
+          <select
+            className="input"
+            value={form.hasReceivedPension ? 'yes' : 'no'}
+            onChange={e => set('hasReceivedPension', e.target.value === 'yes')}
+          >
+            <option value="no">否</option>
+            <option value="yes">是（公司只負擔職災）</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">投保金額（級距）</label>
+          <select
+            className="input"
+            value={form.insuredSalary || rates.basicWage}
+            onChange={e => set('insuredSalary', Number(e.target.value))}
+          >
+            {allBrackets.map(b => (
+              <option key={b} value={b}>
+                ${b.toLocaleString()}{b === rates.basicWage ? '（基本工資）' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* 健保眷屬 */}
+      {form.insuredHealth && (
+        <div>
+          <label className="label">健保眷屬人數（不含本人，預設 0）</label>
+          <input
+            className="input"
+            type="number" min="0" max="3" step="1"
+            value={form.dependentCount}
+            onChange={e => set('dependentCount', e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* 計算結果（唯讀）*/}
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-2">
+        <p className="text-xs font-semibold text-blue-700">系統試算（依目前設定）</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <Row label="勞保投保金額"   value={calc.laborBracket} />
+          <Row label="健保投保金額"   value={calc.healthBracket} />
+          <Row label="勞保員工自付"   value={calc.laborEmployee} />
+          <Row label="勞保單位負擔"   value={calc.laborEmployerTotal} sub={`含職災 ${calc.occupational}`} />
+          <Row label="健保員工自付"   value={calc.healthEmployee} />
+          <Row label="健保單位負擔"   value={calc.healthEmployer} />
+          <Row label="勞退提撥（雇主 6%）" value={calc.pensionEmployer} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Row({ label, value, sub }) {
+  return (
+    <div className="flex items-center justify-between border-b border-blue-100/50 last:border-0 py-1">
+      <span className="text-gray-600">{label}</span>
+      <span className="font-semibold text-gray-900">
+        ${(value || 0).toLocaleString()}
+        {sub && <span className="ml-1 text-[10px] text-gray-400 font-normal">({sub})</span>}
+      </span>
+    </div>
+  )
+}
+
+// ─── 將表單值＋目前 settings 計算後組合成寫入 Firestore 的員工保險欄位 ─────────
+function buildInsuranceFields(form, settings) {
+  const { rates, labor, health } = settings
+  const insuredSalary = Number(form.insuredSalary) || rates.basicWage
+  const calc = calcAllInsurance({
+    baseSalary: insuredSalary,
+    rates, laborBrackets: labor, healthBrackets: health,
+    insuredLabor: !!form.insuredLabor,
+    insuredHealth: !!form.insuredHealth,
+    isPartTime: !!form.isPartTime,
+    hasReceivedPension: !!form.hasReceivedPension,
+    dependentCount: Number(form.dependentCount) || 0,
+  })
+  return {
+    // 使用者輸入旗標
+    insuredLabor:        !!form.insuredLabor,
+    insuredHealth:       !!form.insuredHealth,
+    isPartTime:          !!form.isPartTime,
+    hasReceivedPension:  !!form.hasReceivedPension,
+    dependentCount:      Number(form.dependentCount) || 0,
+    insuredSalary,
+    // 投保金額（沿用舊欄位名稱以相容薪資頁）
+    laborInsuredSalary:      calc.laborBracket,
+    healthInsuredSalary:     calc.healthBracket,
+    // 計算結果
+    laborInsuranceEmployee:  calc.laborEmployee,
+    laborInsuranceEmployer:  calc.laborEmployerTotal,
+    occupationalInsurance:   calc.occupational,
+    healthInsuranceEmployee: calc.healthEmployee,
+    healthInsuranceEmployer: calc.healthEmployer,
+    laborPensionEmployer:    calc.pensionEmployer,
+    laborPensionEmployerRate: rates.pensionRate * 100,
+    laborPensionEmployee:    calc.pensionEmployee,
+    laborPensionEmployeeRate: 0,
+  }
+}
+
 // ─── Add employee modal ───────────────────────────────────────────────────────
 function AddModal({ onClose, allSites }) {
+  const settings = useInsuranceSettings()
   const [form, setForm] = useState({
     name: '', orgId: 'jiaxiang', empTypeKey: 'fulltime-stationed',
     phone: '', email: '', idNumber: '',
     joinDate: new Date().toISOString().slice(0, 10),
     salary: '', stationedSite: '',
     baseSalary: '',
-    laborInsuredSalary: '', healthInsuredSalary: '',
-    laborInsuranceEmployee: '', laborInsuranceEmployer: '',
-    healthInsuranceEmployee: '', healthInsuranceEmployer: '',
-    laborPensionEmployerRate: '', laborPensionEmployeeRate: '',
+    insuredLabor: true, insuredHealth: true,
+    isPartTime: false, hasReceivedPension: false,
+    dependentCount: 0,
+    insuredSalary: settings.rates.basicWage,
     bankCode: '', bankAccount: '',
   })
   const [saving, setSaving] = useState(false)
@@ -580,16 +752,17 @@ function AddModal({ onClose, allSites }) {
   const isMonthly = empType.payType === 'monthly'
   const isStationed = empType.workMode === 'stationed'
   const isOffice    = empType.workMode === 'office'
-
-  const pensionBase = Number(form.laborInsuredSalary) || 0
-  const pensionEmployerAmt = Math.round(pensionBase * (Number(form.laborPensionEmployerRate) || 0) / 100)
-  const pensionEmployeeAmt = Math.round(pensionBase * (Number(form.laborPensionEmployeeRate) || 0) / 100)
+  const isDaily     = empType.payType === 'daily'
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr('請填寫姓名'); return }
     setSaving(true)
     setErr('')
     try {
+      // 日薪員工不算保險，正職才有
+      const insuranceFields = isDaily
+        ? {}
+        : buildInsuranceFields(form, settings)
       await addEmployee({
         orgId:          form.orgId,
         name:           form.name.trim(),
@@ -604,17 +777,8 @@ function AddModal({ onClose, allSites }) {
         stationedSite:  isStationed ? form.stationedSite : '',
         monthlySalary:  isMonthly ? Number(form.salary) || 0 : 0,
         dailyRate:      !isMonthly && !isOffice ? Number(form.salary) || 0 : 0,
-        baseSalary:             Number(form.baseSalary) || 0,
-        laborInsuredSalary:     Number(form.laborInsuredSalary) || 0,
-        healthInsuredSalary:    Number(form.healthInsuredSalary) || 0,
-        laborInsuranceEmployee: Number(form.laborInsuranceEmployee) || 0,
-        laborInsuranceEmployer: Number(form.laborInsuranceEmployer) || 0,
-        healthInsuranceEmployee: Number(form.healthInsuranceEmployee) || 0,
-        healthInsuranceEmployer: Number(form.healthInsuranceEmployer) || 0,
-        laborPensionEmployerRate: Number(form.laborPensionEmployerRate) || 0,
-        laborPensionEmployer:     pensionEmployerAmt,
-        laborPensionEmployeeRate: Number(form.laborPensionEmployeeRate) || 0,
-        laborPensionEmployee:     pensionEmployeeAmt,
+        baseSalary:     Number(form.baseSalary) || 0,
+        ...insuranceFields,
         bankCode:               form.bankCode.trim(),
         bankAccount:            form.bankAccount.trim(),
         status:         'active',
@@ -732,58 +896,8 @@ function AddModal({ onClose, allSites }) {
             </div>
           )}
 
-          {/* 勞保 / 健保 / 勞退 */}
-          <div className="border-t border-gray-100 pt-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">勞保 / 健保 / 勞退</p>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { key: 'laborInsuredSalary',     label: '勞保投保金額' },
-                { key: 'healthInsuredSalary',    label: '健保投保金額' },
-                { key: 'laborInsuranceEmployee', label: '勞保自付額' },
-                { key: 'laborInsuranceEmployer', label: '勞保單位負擔' },
-                { key: 'healthInsuranceEmployee',label: '健保自付額' },
-                { key: 'healthInsuranceEmployer',label: '健保單位負擔' },
-              ].map(({ key, label }) => (
-                <div key={key}>
-                  <label className="label">{label}</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input
-                      className="input pl-7" type="number" min="0" placeholder="0"
-                      value={form[key]}
-                      onChange={e => set(key, e.target.value)}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* 勞退提撥：% 輸入 + 自動計算金額 */}
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              {[
-                { rateKey: 'laborPensionEmployerRate', label: '勞退提撥（雇主）', amt: pensionEmployerAmt },
-                { rateKey: 'laborPensionEmployeeRate', label: '勞退提撥（自提）', amt: pensionEmployeeAmt },
-              ].map(({ rateKey, label, amt }) => (
-                <div key={rateKey}>
-                  <label className="label">{label}</label>
-                  <div className="relative">
-                    <input
-                      className="input pr-8" type="number" min="0" max="100" step="0.1" placeholder="6"
-                      value={form[rateKey]}
-                      onChange={e => set(rateKey, e.target.value)}
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-                  </div>
-                  {amt > 0 && (
-                    <p className="text-xs text-gray-400 mt-1 ml-1">≈ ${amt.toLocaleString()} / 月</p>
-                  )}
-                  {!pensionBase && form[rateKey] && (
-                    <p className="text-xs text-amber-500 mt-1 ml-1">請先填寫勞保投保金額</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* 勞健保 / 勞退（日薪員工不顯示）*/}
+          {!isDaily && <InsuranceSection form={form} set={set} baseSalaryNum={Number(form.baseSalary) || 0} />}
 
           {/* 銀行帳戶 */}
           <div className="border-t border-gray-100 pt-4">
@@ -816,6 +930,7 @@ function AddModal({ onClose, allSites }) {
 
 // ─── Edit employee modal ──────────────────────────────────────────────────────
 function EditModal({ emp, onClose, allSites }) {
+  const settings = useInsuranceSettings()
   const initTypeKey = EMP_TYPE_OPTIONS.find(t =>
     t.workMode === emp.workMode &&
     t.payType  === emp.payType  &&
@@ -838,15 +953,13 @@ function EditModal({ emp, onClose, allSites }) {
     emergencyContact: emp.emergencyContact || '',
     note:             emp.note        || '',
     skills:           (emp.skills || []).join('、'),
-    baseSalary:             String(emp.baseSalary || ''),
-    laborInsuredSalary:     String(emp.laborInsuredSalary || ''),
-    healthInsuredSalary:    String(emp.healthInsuredSalary || ''),
-    laborInsuranceEmployee: String(emp.laborInsuranceEmployee || ''),
-    laborInsuranceEmployer: String(emp.laborInsuranceEmployer || ''),
-    healthInsuranceEmployee: String(emp.healthInsuranceEmployee || ''),
-    healthInsuranceEmployer: String(emp.healthInsuranceEmployer || ''),
-    laborPensionEmployerRate: String(emp.laborPensionEmployerRate || ''),
-    laborPensionEmployeeRate: String(emp.laborPensionEmployeeRate || ''),
+    baseSalary:       String(emp.baseSalary || ''),
+    insuredLabor:        emp.insuredLabor  ?? true,
+    insuredHealth:       emp.insuredHealth ?? true,
+    isPartTime:          emp.isPartTime ?? false,
+    hasReceivedPension:  emp.hasReceivedPension ?? false,
+    dependentCount:      emp.dependentCount ?? 0,
+    insuredSalary:       emp.insuredSalary || emp.laborInsuredSalary || settings.rates.basicWage,
     bankCode:               emp.bankCode    || '',
     bankAccount:            emp.bankAccount || '',
   })
@@ -859,16 +972,16 @@ function EditModal({ emp, onClose, allSites }) {
   const isMonthly  = empType.payType === 'monthly'
   const isStationed = empType.workMode === 'stationed'
   const isOffice    = empType.workMode === 'office'
-
-  const pensionBase = Number(form.laborInsuredSalary) || 0
-  const pensionEmployerAmt = Math.round(pensionBase * (Number(form.laborPensionEmployerRate) || 0) / 100)
-  const pensionEmployeeAmt = Math.round(pensionBase * (Number(form.laborPensionEmployeeRate) || 0) / 100)
+  const isDaily     = empType.payType === 'daily'
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr('請填寫姓名'); return }
     setSaving(true)
     setErr('')
     try {
+      const insuranceFields = isDaily
+        ? {}
+        : buildInsuranceFields(form, settings)
       await updateEmployee(emp.id, {
         name:           form.name.trim(),
         orgId:          form.orgId,
@@ -884,17 +997,8 @@ function EditModal({ emp, onClose, allSites }) {
         stationedSite:  isStationed ? form.stationedSite : '',
         monthlySalary:  isMonthly ? Number(form.salary) || 0 : 0,
         dailyRate:      !isMonthly && !isOffice ? Number(form.salary) || 0 : 0,
-        baseSalary:             Number(form.baseSalary) || 0,
-        laborInsuredSalary:     Number(form.laborInsuredSalary) || 0,
-        healthInsuredSalary:    Number(form.healthInsuredSalary) || 0,
-        laborInsuranceEmployee: Number(form.laborInsuranceEmployee) || 0,
-        laborInsuranceEmployer: Number(form.laborInsuranceEmployer) || 0,
-        healthInsuranceEmployee: Number(form.healthInsuranceEmployee) || 0,
-        healthInsuranceEmployer: Number(form.healthInsuranceEmployer) || 0,
-        laborPensionEmployerRate: Number(form.laborPensionEmployerRate) || 0,
-        laborPensionEmployer:     pensionEmployerAmt,
-        laborPensionEmployeeRate: Number(form.laborPensionEmployeeRate) || 0,
-        laborPensionEmployee:     pensionEmployeeAmt,
+        baseSalary:     Number(form.baseSalary) || 0,
+        ...insuranceFields,
         bankCode:               form.bankCode.trim(),
         bankAccount:            form.bankAccount.trim(),
         status:         form.status,
@@ -1027,58 +1131,8 @@ function EditModal({ emp, onClose, allSites }) {
             </div>
           )}
 
-          {/* 勞保 / 健保 / 勞退 */}
-          <div className="border-t border-gray-100 pt-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">勞保 / 健保 / 勞退</p>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { key: 'laborInsuredSalary',     label: '勞保投保金額' },
-                { key: 'healthInsuredSalary',    label: '健保投保金額' },
-                { key: 'laborInsuranceEmployee', label: '勞保自付額' },
-                { key: 'laborInsuranceEmployer', label: '勞保單位負擔' },
-                { key: 'healthInsuranceEmployee',label: '健保自付額' },
-                { key: 'healthInsuranceEmployer',label: '健保單位負擔' },
-              ].map(({ key, label }) => (
-                <div key={key}>
-                  <label className="label">{label}</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                    <input
-                      className="input pl-7" type="number" min="0" placeholder="0"
-                      value={form[key]}
-                      onChange={e => set(key, e.target.value)}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* 勞退提撥：% 輸入 + 自動計算金額 */}
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              {[
-                { rateKey: 'laborPensionEmployerRate', label: '勞退提撥（雇主）', amt: pensionEmployerAmt },
-                { rateKey: 'laborPensionEmployeeRate', label: '勞退提撥（自提）', amt: pensionEmployeeAmt },
-              ].map(({ rateKey, label, amt }) => (
-                <div key={rateKey}>
-                  <label className="label">{label}</label>
-                  <div className="relative">
-                    <input
-                      className="input pr-8" type="number" min="0" max="100" step="0.1" placeholder="6"
-                      value={form[rateKey]}
-                      onChange={e => set(rateKey, e.target.value)}
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-                  </div>
-                  {amt > 0 && (
-                    <p className="text-xs text-gray-400 mt-1 ml-1">≈ ${amt.toLocaleString()} / 月</p>
-                  )}
-                  {!pensionBase && form[rateKey] && (
-                    <p className="text-xs text-amber-500 mt-1 ml-1">請先填寫勞保投保金額</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* 勞健保 / 勞退（日薪員工不顯示）*/}
+          {!isDaily && <InsuranceSection form={form} set={set} baseSalaryNum={Number(form.baseSalary) || 0} />}
 
           {/* 銀行帳戶 */}
           <div className="border-t border-gray-100 pt-4">

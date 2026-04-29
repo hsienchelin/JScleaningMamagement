@@ -7,10 +7,31 @@ import {
 } from 'lucide-react'
 import { ORGS } from '../lib/mockData'
 import { COL, addSalaryRecord, updateSalaryRecord } from '../lib/db'
-import { useCollection } from '../hooks/useCollection'
+import { useCollection, useDoc } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
 import { calcEntry, calcSalary } from '../utils/calculators'
+import { calcAllInsurance } from '../utils/insuranceCalculator'
+import {
+  PAYROLL_RATES_2026, LABOR_BRACKETS_REGULAR_2026,
+  LABOR_BRACKETS_PARTTIME_2026, HEALTH_BRACKETS_2026,
+} from '../lib/insuranceBracketsSeed'
 import clsx from 'clsx'
+
+// ─── 取得勞健保 settings（薪資頁專用 hook）─────────────────────────────────────
+function useInsuranceSettings() {
+  const { data: ratesDoc }  = useDoc('settings', 'payrollRates')
+  const { data: laborDoc }  = useDoc('settings', 'laborBrackets')
+  const { data: healthDoc } = useDoc('settings', 'healthBrackets')
+  return {
+    rates:  { ...PAYROLL_RATES_2026, ...(ratesDoc || {}) },
+    labor:  laborDoc?.brackets?.length
+      ? { brackets: laborDoc.brackets, partTime: laborDoc.partTime || [] }
+      : { brackets: LABOR_BRACKETS_REGULAR_2026, partTime: LABOR_BRACKETS_PARTTIME_2026 },
+    health: healthDoc?.brackets?.length
+      ? { brackets: healthDoc.brackets }
+      : { brackets: HEALTH_BRACKETS_2026 },
+  }
+}
 
 // Re-export for backward compat
 export { calcSalary }
@@ -115,6 +136,7 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
   const [record, setRecord]           = useState(initRecord)
   const [editMode, setEditMode]       = useState(false)
   const [showEmployer, setShowEmp]    = useState(false)
+  const settings = useInsuranceSettings()
 
   const calc = calcSalary(record, employee)
   const org  = ORGS.find(o => o.id === employee.orgId)
@@ -137,19 +159,37 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
     onUpdate(updated)
   }
 
-  // 從員工資料同步：將保險/勞退/本薪覆寫回薪資單
+  // 從員工資料同步：將保險/勞退/本薪依目前 settings 重新計算覆寫回薪資單
+  // 支援月中離職比例：勞保勞退 = 整月金額 × (在職天數 / 30)；健保月中離職則該月雇主不負擔
   const syncFromEmployee = () => {
+    const insuredDays  = record.insuredDays ?? record.workDays ?? 30
+    const leftMidMonth = !!record.leftMidMonth
+
+    const recalc = calcAllInsurance({
+      baseSalary: employee.insuredSalary || employee.laborInsuredSalary || employee.baseSalary || 0,
+      rates: settings.rates,
+      laborBrackets: settings.labor,
+      healthBrackets: settings.health,
+      insuredLabor: employee.insuredLabor !== false,
+      insuredHealth: employee.insuredHealth !== false,
+      isPartTime: !!employee.isPartTime,
+      hasReceivedPension: !!employee.hasReceivedPension,
+      dependentCount: Number(employee.dependentCount) || 0,
+      daysWorked: insuredDays,
+      leftMidMonth,
+    })
+
     const synced = {
       ...record,
       baseSalary:        employee.baseSalary            || record.baseSalary,
-      laborInsBracket:   employee.laborInsuredSalary    || record.laborInsBracket,
-      healthInsBracket:  employee.healthInsuredSalary   || record.healthInsBracket,
-      laborInsEmployee:  employee.laborInsuranceEmployee  ?? record.laborInsEmployee,
-      laborInsEmployer:  employee.laborInsuranceEmployer  ?? record.laborInsEmployer,
-      healthInsEmployee: employee.healthInsuranceEmployee ?? record.healthInsEmployee,
-      healthInsEmployer: employee.healthInsuranceEmployer ?? record.healthInsEmployer,
-      pensionEmployee:   employee.laborPensionEmployee  ?? record.pensionEmployee,
-      pensionEmployer:   employee.laborPensionEmployer  ?? record.pensionEmployer,
+      laborInsBracket:   recalc.laborBracket   || record.laborInsBracket,
+      healthInsBracket:  recalc.healthBracket  || record.healthInsBracket,
+      laborInsEmployee:  recalc.laborEmployee,
+      laborInsEmployer:  recalc.laborEmployerTotal,
+      healthInsEmployee: recalc.healthEmployee,
+      healthInsEmployer: recalc.healthEmployer,
+      pensionEmployee:   recalc.pensionEmployee,
+      pensionEmployer:   recalc.pensionEmployer,
     }
     setRecord(synced)
     onUpdate(synced)
@@ -375,7 +415,7 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
               <div className="flex-1 h-px bg-gray-100" />
             </div>
 
-            {/* Insurance bracket */}
+            {/* Insurance bracket + 在職天數 + 月中離職 */}
             {editMode ? (
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <div>
@@ -386,11 +426,33 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
                   <label className="label text-xs">健保投保金額</label>
                   <input type="number" value={record.healthInsBracket} onChange={e => set('healthInsBracket', Number(e.target.value))} className="input text-sm" />
                 </div>
+                <div>
+                  <label className="label text-xs">在職天數（用於勞保勞退比例）</label>
+                  <input
+                    type="number" min="0" max="31"
+                    value={record.insuredDays ?? 30}
+                    onChange={e => set('insuredDays', Number(e.target.value))}
+                    className="input text-sm"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={!!record.leftMidMonth}
+                      onChange={e => set('leftMidMonth', e.target.checked)}
+                    />
+                    <span>本月月中離職（健保雇主不負擔）</span>
+                  </label>
+                </div>
               </div>
             ) : (
-              <div className="flex gap-4 mb-2 text-xs text-gray-400 px-1">
+              <div className="flex flex-wrap gap-4 mb-2 text-xs text-gray-400 px-1">
                 <span>勞保投保：{currency(record.laborInsBracket)}</span>
                 <span>健保投保：{currency(record.healthInsBracket)}</span>
+                {record.insuredDays != null && record.insuredDays !== 30 && (
+                  <span className="text-amber-600">在職 {record.insuredDays} 天{record.leftMidMonth && '（月中離職）'}</span>
+                )}
               </div>
             )}
 
@@ -432,7 +494,7 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
                   <p className="text-sm font-semibold text-purple-700">{currency(record.healthInsEmployer)}</p>
                 </div>
                 <div className="flex items-center justify-between py-2 px-4 bg-purple-50 rounded-lg">
-                  <p className="text-sm text-gray-600">勞退提撥（雇主 6%）</p>
+                  <p className="text-sm text-gray-600">勞退提撥（雇主 {(settings.rates.pensionRate * 100).toFixed(0)}%）</p>
                   <p className="text-sm font-semibold text-purple-700">{currency(record.pensionEmployer)}</p>
                 </div>
                 <div className="flex items-center justify-between py-2.5 px-4 bg-purple-100 rounded-xl">
@@ -635,6 +697,7 @@ export default function SalaryPage() {
       await addSalaryRecord({
         orgId: activeOrgId, employeeId: emp.id, month, status: 'pending',
         paymentMethod: 'bank', workDays: daysInMonth, totalDaysInMonth: daysInMonth,
+        insuredDays: 30, leftMidMonth: false,
         baseSalary:       emp.baseSalary       || emp.monthlySalary || 0,
         allowance: 0, overtimePay: 0,
         yearEndBonus: 0, lunarBonus: 0, paidLeave: 0, advancePayment: 0, mobile: [],
