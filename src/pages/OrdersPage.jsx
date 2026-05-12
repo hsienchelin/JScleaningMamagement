@@ -925,14 +925,24 @@ function BillingDraft({ contract, sites = [] }) {
   const currentMonth = now.getMonth() + 1
   const monthLabel   = `${now.getFullYear()}年${currentMonth}月`
 
-  const periodicThisMonth = sites.flatMap(site =>
+  // 已完成（本月實際執行 → 已通過工務請款單核准）的週期任務才列入請款
+  const periodicCompleted = sites.flatMap(site =>
     (site.periodicTasks || [])
-      .filter(t => isTaskDueInMonth(t, currentMonth))
+      .filter(t => (t.completedMonths || []).includes(currentMonth))
+      .map(t => ({ ...t, siteName: site.name }))
+  )
+  // 排定但本月尚未核准完成 → 僅供參考、不計入請款
+  const periodicPending = sites.flatMap(site =>
+    (site.periodicTasks || [])
+      .filter(t =>
+        isTaskDueInMonth(t, currentMonth) &&
+        !(t.completedMonths || []).includes(currentMonth)
+      )
       .map(t => ({ ...t, siteName: site.name }))
   )
 
   const stationedTotal = getContractMonthlyTotal(sites)
-  const periodicTotal  = periodicThisMonth.reduce((s, t) => s + (t.unitPrice || 0), 0)
+  const periodicTotal  = periodicCompleted.reduce((s, t) => s + (t.unitPrice || 0), 0)
   const grandTotal     = stationedTotal + periodicTotal
   const taxTotal       = Math.round(grandTotal * 1.05)
 
@@ -942,7 +952,7 @@ function BillingDraft({ contract, sites = [] }) {
         <div>
           <p className="text-sm font-semibold text-gray-700">{monthLabel}份請款草稿</p>
           <p className="text-xs text-gray-400 mt-0.5">
-            系統依常態項目 + 本月週期任務自動計算，確認後可匯出正式請款單
+            僅列入常態項目 + 本月工務已核准完成的週期任務（依工務請款單回填）
           </p>
         </div>
         <button className="btn-secondary text-sm gap-1.5">
@@ -1001,17 +1011,22 @@ function BillingDraft({ contract, sites = [] }) {
               <td className="hidden md:table-cell" />
             </tr>
 
-            {/* Periodic */}
-            {periodicThisMonth.length > 0 && (
+            {/* Periodic — 已核准完成 */}
+            {periodicCompleted.length > 0 && (
               <>
                 <tr>
                   <td colSpan={6} className="px-4 py-2 bg-teal-50/60 text-[11px] font-semibold text-teal-700 border-t border-teal-100">
-                    週期性重點清潔（{monthLabel}執行）
+                    週期性重點清潔（{monthLabel}已核准完成）
                   </td>
                 </tr>
-                {periodicThisMonth.map(task => (
+                {periodicCompleted.map(task => (
                   <tr key={task.id} className="border-t border-gray-50 hover:bg-gray-50/30">
-                    <td className="px-4 py-2.5 text-gray-800">{task.name}</td>
+                    <td className="px-4 py-2.5 text-gray-800">
+                      <span className="inline-flex items-center gap-1.5">
+                        <CheckCircle size={12} className="text-green-500" />
+                        {task.name}
+                      </span>
+                    </td>
                     <td className="px-3 py-2.5 text-center text-gray-500">次</td>
                     <td className="px-3 py-2.5 text-center text-gray-500">1</td>
                     <td className="px-3 py-2.5 text-right text-gray-700">${task.unitPrice.toLocaleString()}</td>
@@ -1024,6 +1039,32 @@ function BillingDraft({ contract, sites = [] }) {
                   <td className="px-4 py-2 text-right font-semibold text-gray-800">${periodicTotal.toLocaleString()}</td>
                   <td className="hidden md:table-cell" />
                 </tr>
+              </>
+            )}
+
+            {/* Periodic — 排定但尚未核准（不計入請款，僅參考） */}
+            {periodicPending.length > 0 && (
+              <>
+                <tr>
+                  <td colSpan={6} className="px-4 py-2 bg-amber-50/60 text-[11px] font-semibold text-amber-700 border-t border-amber-100">
+                    本月排定但尚未核准完成（不列入本月請款）
+                  </td>
+                </tr>
+                {periodicPending.map(task => (
+                  <tr key={task.id} className="border-t border-gray-50 text-gray-500">
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Clock size={12} className="text-amber-400" />
+                        {task.name}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">次</td>
+                    <td className="px-3 py-2.5 text-center">—</td>
+                    <td className="px-3 py-2.5 text-right">${task.unitPrice.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right italic text-gray-400">待核准</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400 hidden md:table-cell">{task.siteName}</td>
+                  </tr>
+                ))}
               </>
             )}
 
@@ -1042,9 +1083,9 @@ function BillingDraft({ contract, sites = [] }) {
         </table>
       </div>
 
-      {periodicThisMonth.length === 0 && (
+      {periodicCompleted.length === 0 && periodicPending.length === 0 && (
         <div className="text-center py-4 text-sm text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-          本月無排定的週期性項目
+          本月無已核准完成或排定的週期性項目
         </div>
       )}
     </div>
