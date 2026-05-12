@@ -479,18 +479,29 @@ function SessionEditor({ session, sessionNum, total, onChange, onRemove, allEmpl
 // ─── Report Form ──────────────────────────────────────────────────────────────
 function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryItems = [], orders = [], annualContracts = [] }) {
   const [form, setForm] = useState(init)
-  const set = (patch) => setForm(f => ({ ...f, ...patch }))
+  // 已提交 / 已核准的請款單不允許修改；只有透過「撤回為草稿」明確 onSave 才能解鎖
+  const set = (patch) => setForm(f => {
+    if (f.status === 'submitted' || f.status === 'approved') return f
+    return { ...f, ...patch }
+  })
 
   const activeEmployees = (employees.length > 0 ? employees : MOCK_EMPLOYEES)
     .filter(e => e.status === 'active')
   const mobileEmployees = activeEmployees.filter(e => e.workMode === 'mobile')
 
   // ── Link type helpers ────────────────────────────────────────────────────────
-  const clearLink = (linkType) => set({
-    linkType, orderId: '', orderName: '',
-    contractId: '', contractSiteId: '', taskId: '', taskName: '',
-    siteName: '', siteAddress: '',
-  })
+  const clearLink = (linkType) => {
+    const cleanedSessions = (form.sessions || []).map(sess => ({
+      ...sess,
+      tasks: (sess.tasks || []).filter(t => !t.linkedToPeriodic),
+    }))
+    set({
+      linkType, orderId: '', orderName: '',
+      contractId: '', contractSiteId: '', taskId: '', taskName: '',
+      siteName: '', siteAddress: '',
+      sessions: cleanedSessions,
+    })
+  }
 
   const handleOrderChange = (orderId) => {
     const o = orders.find(x => x.id === orderId)
@@ -513,7 +524,19 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
     const contract = annualContracts.find(c => c.id === form.contractId)
     const site     = (contract?.sites || []).find(s => s.id === form.contractSiteId)
     const task     = (site?.periodicTasks || []).find(t => t.id === taskId)
-    set({ taskId, taskName: task?.name || '' })
+    // 自動把週期任務帶進第一個 session 的施作項目（清掉之前自動加入的）
+    const newSessions = (form.sessions || []).map((sess, idx) => {
+      const cleaned = (sess.tasks || []).filter(t => !t.linkedToPeriodic)
+      if (idx !== 0 || !task) return { ...sess, tasks: cleaned }
+      return {
+        ...sess,
+        tasks: [
+          { presetId: `periodic-${task.id}`, name: task.name, location: site?.name || '', linkedToPeriodic: true },
+          ...cleaned,
+        ],
+      }
+    })
+    set({ taskId, taskName: task?.name || '', sessions: newSessions })
   }
 
   const handleLeaderChange = (leaderId) => {
@@ -531,8 +554,21 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
     [reportDate, annualContracts]
   )
 
-  // 點「今日排定」卡片 → 一鍵帶入合約/案場/任務
+  // 點「今日排定」卡片 → 一鍵帶入合約/案場/任務，並把週期任務寫進第一個 session 的施作項目
   const fillFromScheduled = (s) => {
+    const presetId = `periodic-${s.taskId}`
+    const newSessions = (form.sessions || []).map((sess, idx) => {
+      // 清掉舊的 linkedToPeriodic 項目（換任務時不殘留）
+      const cleaned = (sess.tasks || []).filter(t => !t.linkedToPeriodic)
+      if (idx !== 0) return { ...sess, tasks: cleaned }
+      return {
+        ...sess,
+        tasks: [
+          { presetId, name: s.taskName, location: s.siteName, linkedToPeriodic: true },
+          ...cleaned,
+        ],
+      }
+    })
     set({
       linkType:       'periodic',
       contractId:     s.contractId,
@@ -541,6 +577,7 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
       siteAddress:    s.siteAddress,
       taskId:         s.taskId,
       taskName:       s.taskName,
+      sessions:       newSessions,
     })
   }
 
@@ -560,6 +597,9 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
     ? (form.taskName ? `${form.siteName} — ${form.taskName}` : '尚未選擇週期項目')
     : '不關聯'
 
+  const status   = form.status || 'draft'
+  const isLocked = status === 'submitted' || status === 'approved'
+
   return (
     <div className="max-w-3xl mx-auto space-y-4 pb-8">
       {/* Sticky header */}
@@ -568,17 +608,47 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
           <ChevronLeft size={16} /> 返回
         </button>
         <div className="flex-1">
-          <h1 className="text-base font-bold text-gray-900">
-            {init.isNew ? '新增工務請款單' : '編輯工務請款單'}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-base font-bold text-gray-900">
+              {init.isNew ? '新增工務請款單' : (isLocked ? '檢視工務請款單' : '編輯工務請款單')}
+            </h1>
+            {!init.isNew && (
+              <span className={clsx('text-[11px] font-semibold px-2 py-0.5 rounded-full', STATUS[status]?.badge || 'bg-gray-100 text-gray-600')}>
+                {STATUS[status]?.label || status}
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-400">{subtitle}</p>
         </div>
-        <button className="btn-secondary" onClick={() => onSave({ ...form, status: 'draft' })}>
-          <Save size={15} /> 存草稿
-        </button>
-        <button className="btn-primary" onClick={() => onSave({ ...form, status: 'submitted' })}>
-          <Send size={15} /> 提交
-        </button>
+
+        {/* draft 才能改 / 提交；submitted 顯示「撤回為草稿」；approved 完全鎖定 */}
+        {status === 'draft' && (
+          <>
+            <button className="btn-secondary" onClick={() => onSave({ ...form, status: 'draft' })}>
+              <Save size={15} /> 存草稿
+            </button>
+            <button className="btn-primary" onClick={() => onSave({ ...form, status: 'submitted' })}>
+              <Send size={15} /> 提交
+            </button>
+          </>
+        )}
+        {status === 'submitted' && (
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              if (confirm('撤回為草稿後可重新修改，主管需重新審核。確定撤回？')) {
+                onSave({ ...form, status: 'draft' })
+              }
+            }}
+          >
+            <ChevronLeft size={14} /> 撤回為草稿
+          </button>
+        )}
+        {status === 'approved' && (
+          <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-3 py-1.5 rounded-lg font-medium">
+            已核准・不可修改
+          </span>
+        )}
       </div>
 
       {/* ── 今日排定（依第一個 session 日期、跨合約找出已排定的週期任務）── */}
@@ -776,6 +846,32 @@ function ReportDetail({ report, onBack, onEdit, onApprove }) {
         </div>
         <button className="btn-secondary" onClick={onEdit}><Pencil size={15} /> 編輯</button>
       </div>
+
+      {/* 關聯資訊（單次 / 週期項目）*/}
+      {report.linkType === 'periodic' && report.taskName && (
+        <div className="card border border-amber-200 bg-amber-50/40 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <Calendar size={14} className="text-amber-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">年度合約週期項目</p>
+              <p className="text-sm font-bold text-gray-800 mt-0.5">{report.taskName}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{report.siteName} · 核准後將標記為本月完成 + 清空排班計畫日</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {report.linkType === 'order' && report.orderName && (
+        <div className="card border border-blue-200 bg-blue-50/40 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <FileText size={14} className="text-blue-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">單次案件</p>
+              <p className="text-sm font-bold text-gray-800 mt-0.5">{report.orderName}</p>
+              <p className="text-xs text-gray-500 mt-0.5">核准後將更新訂單狀態為「施工完成」</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Overview banner */}
       <div className="card p-5" style={{ background: `linear-gradient(135deg, ${org?.color}, ${org?.color}cc)` }}>
