@@ -256,11 +256,17 @@ function ManpowerSection({ manpower, allEmployees, onAdd, onRemove, onShift }) {
 }
 
 // ─── Task Section ─────────────────────────────────────────────────────────────
-function TaskSection({ tasks, onAdd, onRemove, onUpdate }) {
+function TaskSection({ tasks, onAdd, onRemove, onUpdate, customTasks = [] }) {
   const [open, setOpen] = useState(false)
   const dropdownRef     = useRef(null)
   const selectedIds     = new Set(tasks.map(t => t.presetId))
-  const available       = PRESET_TASKS.filter(p => !selectedIds.has(p.id))
+  // 內建 + 使用者自訂合併，依名稱排序、自訂優先
+  const mergedTasks = useMemo(() => {
+    const builtin = PRESET_TASKS
+    const custom  = customTasks.map(c => ({ id: c.id, name: c.name, category: c.category }))
+    return [...custom, ...builtin]
+  }, [customTasks])
+  const available  = mergedTasks.filter(p => !selectedIds.has(p.id))
 
   useEffect(() => {
     const handler = (e) => {
@@ -271,8 +277,9 @@ function TaskSection({ tasks, onAdd, onRemove, onUpdate }) {
   }, [])
 
   const availableGroups = available.reduce((acc, p) => {
-    if (!acc[p.category]) acc[p.category] = []
-    acc[p.category].push(p)
+    const cat = p.category || '未分類'
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(p)
     return acc
   }, {})
 
@@ -288,7 +295,7 @@ function TaskSection({ tasks, onAdd, onRemove, onUpdate }) {
       <div className="px-5 py-4 space-y-2">
         {tasks.length === 0 && <p className="text-sm text-gray-400 text-center py-4">尚未加入任何施工項目</p>}
         {tasks.map(t => {
-          const preset = PRESET_TASKS.find(p => p.id === t.presetId)
+          const preset = mergedTasks.find(p => p.id === t.presetId)
           return (
             <div key={t.presetId} className="bg-gray-50 rounded-xl px-3 py-3 space-y-2.5">
               <div className="flex items-center gap-2">
@@ -346,7 +353,7 @@ function TaskSection({ tasks, onAdd, onRemove, onUpdate }) {
 }
 
 // ─── Session Editor ───────────────────────────────────────────────────────────
-function SessionEditor({ session, sessionNum, total, onChange, onRemove, allEmployees, inventoryItems }) {
+function SessionEditor({ session, sessionNum, total, onChange, onRemove, allEmployees, inventoryItems, customCleaningTasks = [] }) {
   const [open, setOpen] = useState(true)
 
   const set = (patch) => onChange({ ...session, ...patch })
@@ -407,6 +414,7 @@ function SessionEditor({ session, sessionNum, total, onChange, onRemove, allEmpl
           {/* Tasks */}
           <TaskSection
             tasks={session.tasks}
+            customTasks={customCleaningTasks}
             onAdd={preset => set({ tasks: [...session.tasks, { presetId: preset.id, name: preset.name, location: '' }] })}
             onRemove={pid => set({ tasks: session.tasks.filter(t => t.presetId !== pid) })}
             onUpdate={(pid, patch) => set({ tasks: session.tasks.map(t => t.presetId === pid ? { ...t, ...patch } : t) })}
@@ -477,7 +485,7 @@ function SessionEditor({ session, sessionNum, total, onChange, onRemove, allEmpl
 }
 
 // ─── Report Form ──────────────────────────────────────────────────────────────
-function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryItems = [], orders = [], annualContracts = [] }) {
+function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryItems = [], orders = [], annualContracts = [], customCleaningTasks = [] }) {
   const [form, setForm] = useState(init)
   // 已提交 / 已核准的請款單不允許修改；只有透過「撤回為草稿」明確 onSave 才能解鎖
   const set = (patch) => setForm(f => {
@@ -810,6 +818,7 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
               onRemove={() => removeSession(sess.id)}
               allEmployees={mobileEmployees}
               inventoryItems={inventoryItems}
+              customCleaningTasks={customCleaningTasks}
             />
           ))}
           <button
@@ -987,6 +996,7 @@ export default function DailyReportPage() {
   const { data: inventoryItemsRaw }  = useCollection(COL.INVENTORY_ITEMS)
   const { data: ordersRaw }          = useCollection(COL.ORDERS)
   const { data: annualContractsRaw } = useCollection(COL.ANNUAL_CONTRACTS)
+  const { data: customCleaningTasks } = useCollection(COL.CLEANING_TASKS)
 
   const reports         = workOrdersRaw.filter(r => r.orgId === activeOrgId)
   const employees       = employeesRaw.filter(e => e.orgId === activeOrgId)
@@ -1073,7 +1083,7 @@ export default function DailyReportPage() {
 
   const liveReport = reports.find(r => r.id === current?.id) || current
 
-  if (view === 'form')   return <ReportForm   report={current} onSave={saveReport} onCancel={() => setView('list')} employees={employees} inventoryItems={inventoryItems} orders={orders} annualContracts={annualContracts} />
+  if (view === 'form')   return <ReportForm   report={current} onSave={saveReport} onCancel={() => setView('list')} employees={employees} inventoryItems={inventoryItems} orders={orders} annualContracts={annualContracts} customCleaningTasks={customCleaningTasks} />
   if (view === 'detail') return <ReportDetail report={liveReport} onBack={() => setView('list')} onEdit={() => openEdit(liveReport)} onApprove={approveReport} />
 
   // ── List view ──────────────────────────────────────────────────────────────

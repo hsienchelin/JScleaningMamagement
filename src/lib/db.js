@@ -27,6 +27,7 @@ export const COL = {
   USERS:              'users',
   INVOICES:           'invoices',
   SETTINGS:           'settings',
+  CLEANING_TASKS:     'cleaningTasks',
 }
 
 // ─── 員工編號自動產生（JS001, JS002, ...）────────────────────────────────────
@@ -220,6 +221,23 @@ export async function addInvoice(data) {
 
 export async function updateInvoice(id, data) {
   await updateDoc(doc(db, COL.INVOICES, id), { ...data, updatedAt: serverTimestamp() })
+}
+
+// ─── 施工項目字典（PRESET_TASKS 之外可自訂的項目）────────────────────────────
+export async function addCleaningTask(data) {
+  return addDoc(collection(db, COL.CLEANING_TASKS), {
+    ...data,
+    createdAt: serverTimestamp(),
+  })
+}
+export async function updateCleaningTask(id, data) {
+  await updateDoc(doc(db, COL.CLEANING_TASKS, id), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  })
+}
+export async function deleteCleaningTask(id) {
+  await deleteDoc(doc(db, COL.CLEANING_TASKS, id))
 }
 
 // ─── 系統設定（單一文件 docId 方式）─────────────────────────────────────────────

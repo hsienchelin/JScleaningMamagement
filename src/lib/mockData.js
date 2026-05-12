@@ -51,6 +51,12 @@ export const PRESET_TASKS = [
   { id: 'pt014', name: '裝潢清潔－細清', category: '裝潢清潔' },
   { id: 'pt015', name: '裝潢清潔－收尾', category: '裝潢清潔' },
   { id: 'pt016', name: '環境消毒',       category: '消毒除菌' },
+  // 駐點合約常見項目
+  { id: 'pt017', name: '高壓清洗',       category: '特殊區域' },
+  { id: 'pt018', name: '水塔清洗',       category: '特殊設備' },
+  { id: 'pt019', name: '採光罩清洗',     category: '高處清潔' },
+  { id: 'pt020', name: '風扇擦拭',       category: '高處清潔' },
+  { id: 'pt021', name: '停車場清潔',     category: '特殊區域' },
 ]
 
 export const PAY_RATES = {

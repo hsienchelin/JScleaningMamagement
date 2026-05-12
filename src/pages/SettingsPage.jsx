@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Save, Plus, Trash2, Shield, Layers, Download, Calculator, Percent, Briefcase,
+  CheckSquare, X, Pencil,
 } from 'lucide-react'
-import { WORK_TYPES } from '../lib/mockData'
-import { useDoc } from '../hooks/useCollection'
-import { setSettingsDoc } from '../lib/db'
+import { WORK_TYPES, PRESET_TASKS } from '../lib/mockData'
+import { useDoc, useCollection } from '../hooks/useCollection'
+import {
+  setSettingsDoc, COL,
+  addCleaningTask, updateCleaningTask, deleteCleaningTask,
+} from '../lib/db'
 import {
   HEALTH_BRACKETS_2026,
   LABOR_BRACKETS_REGULAR_2026,
@@ -16,6 +20,7 @@ const TABS = [
   { id: 'rates',     label: '費率與基本工資', icon: Percent },
   { id: 'health',    label: '健保級距',       icon: Shield },
   { id: 'labor',     label: '勞保級距',       icon: Briefcase },
+  { id: 'tasks',     label: '施工項目',       icon: CheckSquare },
   { id: 'general',   label: '一般設定',       icon: Layers },
 ]
 
@@ -48,7 +53,170 @@ export default function SettingsPage() {
       {tab === 'rates'   && <RatesPanel />}
       {tab === 'health'  && <BracketPanel docId="healthBrackets" title="健保級距表" seed={HEALTH_BRACKETS_2026} />}
       {tab === 'labor'   && <LaborBracketPanel />}
+      {tab === 'tasks'   && <CleaningTasksPanel />}
       {tab === 'general' && <GeneralPanel />}
+    </div>
+  )
+}
+
+// ─── 施工項目管理 ─────────────────────────────────────────────────────────────
+function CleaningTasksPanel() {
+  const { data: customTasks } = useCollection(COL.CLEANING_TASKS)
+  const [editing, setEditing] = useState(null)  // null=closed, false=new, obj=edit
+  const [search,  setSearch]  = useState('')
+
+  // 合併「程式內建」+「使用者自訂」
+  const allTasks = useMemo(() => {
+    const builtin = PRESET_TASKS.map(p => ({ ...p, source: 'builtin' }))
+    const custom  = customTasks.map(c => ({ ...c, source: 'custom' }))
+    return [...builtin, ...custom].filter(t => t.name?.includes(search.trim()))
+  }, [customTasks, search])
+
+  // 依分類分組
+  const grouped = useMemo(() => {
+    const map = {}
+    allTasks.forEach(t => {
+      const cat = t.category || '未分類'
+      if (!map[cat]) map[cat] = []
+      map[cat].push(t)
+    })
+    return map
+  }, [allTasks])
+
+  const handleDelete = async (task) => {
+    if (task.source === 'builtin') return  // 內建不可刪
+    if (!confirm(`確定刪除「${task.name}」？已使用此項目的歷史請款單仍會保留名稱。`)) return
+    await deleteCleaningTask(task.id)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="card p-5">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="flex-1">
+            <h2 className="text-base font-bold text-gray-900">施工項目字典</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              工務請款單建立時可從這份字典挑選施工項目。內建 {PRESET_TASKS.length} 項、自訂 {customTasks.length} 項。
+            </p>
+          </div>
+          <button className="btn-primary shrink-0" onClick={() => setEditing(false)}>
+            <Plus size={15} /> 新增施工項目
+          </button>
+        </div>
+
+        <input
+          className="input"
+          placeholder="搜尋項目名稱…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
+      {/* 依分類列出 */}
+      {Object.entries(grouped).map(([cat, tasks]) => (
+        <div key={cat} className="card overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">{cat} · {tasks.length} 項</p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {tasks.map(t => (
+              <div key={`${t.source}-${t.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/50">
+                <CheckSquare size={14} className="text-brand-600 shrink-0" />
+                <span className="text-sm text-gray-800 flex-1">{t.name}</span>
+                {t.source === 'builtin' ? (
+                  <span className="badge bg-gray-100 text-gray-500 text-[10px]">內建</span>
+                ) : (
+                  <>
+                    <button onClick={() => setEditing(t)} className="text-gray-400 hover:text-brand-600 transition-colors">
+                      <Pencil size={13} />
+                    </button>
+                    <button onClick={() => handleDelete(t)} className="text-gray-300 hover:text-red-500 transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {allTasks.length === 0 && (
+        <div className="card p-12 text-center text-gray-400">
+          <CheckSquare size={36} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">找不到符合的施工項目</p>
+        </div>
+      )}
+
+      {editing !== null && (
+        <CleaningTaskModal
+          task={editing || null}
+          allCategories={Array.from(new Set(allTasks.map(t => t.category).filter(Boolean)))}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function CleaningTaskModal({ task, allCategories, onClose }) {
+  const isEdit = !!task
+  const [name,     setName]     = useState(task?.name     || '')
+  const [category, setCategory] = useState(task?.category || (allCategories[0] || ''))
+  const [newCat,   setNewCat]   = useState('')
+  const [saving,   setSaving]   = useState(false)
+  const [err,      setErr]      = useState('')
+
+  const handleSave = async () => {
+    const finalCat = newCat.trim() || category
+    if (!name.trim()) { setErr('請填寫項目名稱'); return }
+    if (!finalCat)    { setErr('請選擇或新增分類'); return }
+    setSaving(true); setErr('')
+    try {
+      const data = { name: name.trim(), category: finalCat }
+      if (isEdit) await updateCleaningTask(task.id, data)
+      else        await addCleaningTask(data)
+      onClose()
+    } catch (e) {
+      setErr('儲存失敗：' + (e.message || '請稍後再試'))
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-gray-900">{isEdit ? '編輯施工項目' : '新增施工項目'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="label">項目名稱 *</label>
+            <input className="input" placeholder="例：廚房抽油煙機清洗" value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">分類</label>
+            <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
+              {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="">＋ 新增分類</option>
+            </select>
+          </div>
+          {!category && (
+            <div>
+              <label className="label">新分類名稱 *</label>
+              <input className="input" placeholder="例：餐廚清潔" value={newCat} onChange={e => setNewCat(e.target.value)} />
+            </div>
+          )}
+          {err && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
+          <button className="btn-secondary" onClick={onClose}>取消</button>
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? '儲存中...' : isEdit ? '更新' : '新增'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
