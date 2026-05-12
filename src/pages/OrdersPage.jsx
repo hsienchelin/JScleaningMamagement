@@ -11,6 +11,12 @@ import { COL, addOrder, updateOrder, addAnnualContract, updateCustomer, updateAn
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
 import clsx from 'clsx'
+import {
+  BILLING_MODES, BILLING_MODE_MAP, SCHEDULE_TYPES, SCHEDULE_TYPE_MAP,
+  getSiteMonthlyBase, getContractMonthlyTotal, isTaskDueInMonth, getTaskScheduleText,
+  rangeMonths, getDispatchRemaining, getDispatchRevenueMax, getWeeklyAnnualTotal,
+  WEEKDAYS, makeNewSite, makeNewMonthlyItem, makeNewDispatchPlanItem,
+} from '../utils/contractSchema'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MONTHS_ZH = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月']
@@ -843,6 +849,7 @@ function TaskMatrix({ sites }) {
           <tbody>
             {sites.map(site => {
               if (!site.periodicTasks?.length) return null
+              const siteMonthly = getSiteMonthlyBase(site)
               return (
                 <React.Fragment key={site.id}>
                   {/* Site header row */}
@@ -851,7 +858,7 @@ function TaskMatrix({ sites }) {
                       <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500">
                         <Building2 size={11} />
                         {site.name}
-                        <span className="font-normal text-gray-400">月費 ${site.monthlyBase.toLocaleString()}</span>
+                        <span className="font-normal text-gray-400">月費 ${siteMonthly.toLocaleString()}</span>
                       </div>
                     </td>
                   </tr>
@@ -859,10 +866,10 @@ function TaskMatrix({ sites }) {
                   {site.periodicTasks.map(task => (
                     <tr key={task.id} className="border-t border-gray-50 hover:bg-gray-50/40">
                       <td className="px-4 py-2 font-medium text-gray-800 text-[11px]">{task.name}</td>
-                      <td className="px-3 py-2 text-right text-gray-500">${task.unitPrice.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right text-gray-500">${(task.unitPrice || 0).toLocaleString()}</td>
                       {Array.from({ length: 12 }, (_, i) => {
                         const m         = i + 1
-                        const scheduled = task.months.includes(m)
+                        const scheduled = isTaskDueInMonth(task, m)
                         const completed = task.completedMonths?.includes(m)
                         const isCurrent = m === currentMonth
                         const isPast    = m < currentMonth && scheduled && !completed
@@ -915,12 +922,12 @@ function BillingDraft({ contract, sites = [] }) {
 
   const periodicThisMonth = sites.flatMap(site =>
     (site.periodicTasks || [])
-      .filter(t => t.months.includes(currentMonth))
+      .filter(t => isTaskDueInMonth(t, currentMonth) && !t.completedMonths?.includes(currentMonth))
       .map(t => ({ ...t, siteName: site.name }))
   )
 
-  const stationedTotal = sites.reduce((s, site) => s + (site.monthlyBase || 0), 0)
-  const periodicTotal  = periodicThisMonth.reduce((s, t) => s + t.unitPrice, 0)
+  const stationedTotal = getContractMonthlyTotal(sites)
+  const periodicTotal  = periodicThisMonth.reduce((s, t) => s + (t.unitPrice || 0), 0)
   const grandTotal     = stationedTotal + periodicTotal
   const taxTotal       = Math.round(grandTotal * 1.05)
 
@@ -957,18 +964,30 @@ function BillingDraft({ contract, sites = [] }) {
                 常態性駐點清潔
               </td>
             </tr>
-            {sites.map(site => (
-              <tr key={site.id} className="border-t border-gray-50 hover:bg-gray-50/30">
-                <td className="px-4 py-2.5 text-gray-800">{site.name}　全區環境清潔</td>
-                <td className="px-3 py-2.5 text-center text-gray-500">月</td>
-                <td className="px-3 py-2.5 text-center text-gray-500">1</td>
-                <td className="px-3 py-2.5 text-right text-gray-700">${(site.monthlyBase || 0).toLocaleString()}</td>
-                <td className="px-4 py-2.5 text-right font-semibold text-gray-900">${(site.monthlyBase || 0).toLocaleString()}</td>
-                <td className="px-4 py-2.5 text-xs text-gray-400 hidden md:table-cell">
-                  {(site.shifts || []).map(s => `${s.label || '班次'}×${s.headcount}人`).join('、')}
-                </td>
-              </tr>
-            ))}
+            {sites.map(site => {
+              const mode = site.billingMode || 'fixed'
+              const base = getSiteMonthlyBase(site)
+              if (mode === 'dispatch' || mode === 'weekly') {
+                return (
+                  <tr key={site.id} className="border-t border-gray-50 text-gray-500 italic">
+                    <td className="px-4 py-2.5">{site.name}（{BILLING_MODE_MAP[mode]?.label}，本月按實際執行另計）</td>
+                    <td colSpan={5}></td>
+                  </tr>
+                )
+              }
+              return (
+                <tr key={site.id} className="border-t border-gray-50 hover:bg-gray-50/30">
+                  <td className="px-4 py-2.5 text-gray-800">{site.name}　全區環境清潔</td>
+                  <td className="px-3 py-2.5 text-center text-gray-500">月</td>
+                  <td className="px-3 py-2.5 text-center text-gray-500">1</td>
+                  <td className="px-3 py-2.5 text-right text-gray-700">${base.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-gray-900">${base.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-400 hidden md:table-cell">
+                    {(site.shifts || []).map(s => `${s.label || '班次'}×${s.headcount}人`).join('、')}
+                  </td>
+                </tr>
+              )
+            })}
 
             {/* Subtotal stationed */}
             <tr className="border-t border-gray-200 bg-gray-50/60">
@@ -1036,23 +1055,75 @@ function EditSiteModal({ site, onSave, onClose }) {
     [shiftCodesRaw, activeOrgId]
   )
 
-  // Only keep shifts that reference the new shiftCodeId system; drop legacy manual entries
+  // ─── 計費模式 ─────────────────────────────────────────────────────────────
+  const [billingMode, setBillingMode] = useState(site.billingMode || 'fixed')
+
+  // ─── 月固定明細 ──（用於 fixed / actual）──────────────────────────────────
+  // 沿用舊資料：若沒有 monthlyItems 但有 monthlyBase，先把它放成單行「月固定」
+  const [monthlyItems, setMonthlyItems] = useState(() => {
+    if (Array.isArray(site.monthlyItems) && site.monthlyItems.length > 0) return site.monthlyItems
+    if (site.monthlyBase) return [makeNewMonthlyItem('月固定費用', site.monthlyBase)]
+    return []
+  })
+
+  // ─── 派工型：派工計畫 + 子地點 ─────────────────────────────────────────────
+  const [dispatchPlan, setDispatchPlan] = useState(site.dispatchPlan || [])
+  const [locations,    setLocations]    = useState(site.locations    || [])
+  const [newLocation,  setNewLocation]  = useState('')
+
+  // ─── 每週固定型 ───────────────────────────────────────────────────────────
+  const [weeklySchedule, setWeeklySchedule] = useState(
+    site.weeklySchedule || { weekdays: [], timesPerWeek: 0, unitPrice: 0, weeks: 52 }
+  )
+
+  // ─── 班次 + 週期任務（共用）──────────────────────────────────────────────
   const [shifts, setShifts] = useState((site.shifts || []).filter(s => s.shiftCodeId))
   const [tasks,  setTasks]  = useState(site.periodicTasks || [])
-  const [saving, setSaving] = useState(false)
 
-  // 每月固定成本預算
+  // ─── 成本預算 ────────────────────────────────────────────────────────────
   const [monthlyConsumableCost, setConsumable] = useState(String(site.monthlyConsumableCost || ''))
   const [monthlyToolCost,       setToolCost]   = useState(String(site.monthlyToolCost       || ''))
 
-  // shift form — only shiftCodeId + headcount
+  // ─── shift form ──────────────────────────────────────────────────────────
   const [pickShiftCodeId, setPickShiftCodeId] = useState('')
   const [shiftHeadcount,  setShiftHeadcount]  = useState('1')
+  const [shiftWeekdays,   setShiftWeekdays]   = useState([])
 
-  // task form
-  const [taskName,   setTaskName]   = useState('')
-  const [taskPrice,  setTaskPrice]  = useState('')
-  const [taskMonths, setTaskMonths] = useState([])
+  // ─── task form ───────────────────────────────────────────────────────────
+  const [taskName,        setTaskName]        = useState('')
+  const [taskPrice,       setTaskPrice]       = useState('')
+  const [taskScheduleTyp, setTaskScheduleTyp] = useState('fixed')
+  const [taskMonths,      setTaskMonths]      = useState([])
+  const [taskWindowStart, setTaskWinStart]    = useState('')
+  const [taskWindowEnd,   setTaskWinEnd]      = useState('')
+
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState('')
+
+  // ── monthly items handlers ──
+  const addMonthlyItem = () => setMonthlyItems(prev => [...prev, makeNewMonthlyItem()])
+  const updateMonthlyItem = (id, key, value) =>
+    setMonthlyItems(prev => prev.map(i => i.id === id ? { ...i, [key]: key === 'amount' ? (Number(value) || 0) : value } : i))
+  const removeMonthlyItem = id => setMonthlyItems(prev => prev.filter(i => i.id !== id))
+  const monthlyTotal = monthlyItems.reduce((s, i) => s + (Number(i.amount) || 0), 0)
+
+  // ── dispatch handlers ──
+  const addDispatchItem = () => setDispatchPlan(prev => [...prev, makeNewDispatchPlanItem()])
+  const updateDispatchItem = (id, key, value) =>
+    setDispatchPlan(prev => prev.map(d => d.id === id ? { ...d, [key]: key === 'name' ? value : (Number(value) || 0) } : d))
+  const removeDispatchItem = id => setDispatchPlan(prev => prev.filter(d => d.id !== id))
+  const dispatchTotal = dispatchPlan.reduce((s, d) => s + (d.plannedCount * d.unitPrice), 0)
+
+  const addLocation = () => {
+    const v = newLocation.trim()
+    if (!v || locations.includes(v)) return
+    setLocations(prev => [...prev, v])
+    setNewLocation('')
+  }
+
+  // ── shift handlers ──
+  const toggleShiftWeekday = d =>
+    setShiftWeekdays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort((a, b) => a - b))
 
   const addShift = () => {
     if (!pickShiftCodeId) return
@@ -1060,35 +1131,71 @@ function EditSiteModal({ site, onSave, onClose }) {
       id: `shift-${Date.now()}`,
       shiftCodeId: pickShiftCodeId,
       headcount:   Number(shiftHeadcount) || 1,
+      weekdays:    shiftWeekdays.length > 0 ? [...shiftWeekdays] : [],
     }])
-    setPickShiftCodeId(''); setShiftHeadcount('1')
+    setPickShiftCodeId(''); setShiftHeadcount('1'); setShiftWeekdays([])
   }
 
-  const addTask = () => {
-    if (!taskName.trim() || taskMonths.length === 0) return
-    setTasks(prev => [...prev, {
-      id: `task-${Date.now()}`,
-      name: taskName.trim(),
-      unitPrice: Number(taskPrice) || 0,
-      months: [...taskMonths].sort((a, b) => a - b),
-      completedMonths: [],
-    }])
-    setTaskName(''); setTaskPrice(''); setTaskMonths([])
-  }
-
+  // ── task handlers ──
   const toggleMonth = m =>
     setTaskMonths(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])
 
-  const [saveErr, setSaveErr] = useState('')
+  const addTask = () => {
+    if (!taskName.trim()) return
+    const newTask = {
+      id: `task-${Date.now()}`,
+      name: taskName.trim(),
+      unitPrice: Number(taskPrice) || 0,
+      scheduleType: taskScheduleTyp,
+      completedMonths: [],
+    }
+    if (taskScheduleTyp === 'fixed') {
+      if (taskMonths.length === 0) return
+      newTask.months = [...taskMonths].sort((a, b) => a - b)
+    } else if (taskScheduleTyp === 'range') {
+      const s = Number(taskWindowStart)
+      const e = Number(taskWindowEnd)
+      if (!s || !e || s > e) return
+      newTask.windowStart = s
+      newTask.windowEnd   = e
+      newTask.months      = rangeMonths(s, e)  // 候選月份
+    } else if (taskScheduleTyp === 'once') {
+      newTask.months = []  // 全年任何月份
+    }
+    setTasks(prev => [...prev, newTask])
+    setTaskName(''); setTaskPrice(''); setTaskMonths([]); setTaskWinStart(''); setTaskWinEnd(''); setTaskScheduleTyp('fixed')
+  }
+
+  // ── weekly handlers ──
+  const toggleWeeklyWeekday = d =>
+    setWeeklySchedule(prev => {
+      const wds = prev.weekdays || []
+      const next = wds.includes(d) ? wds.filter(x => x !== d) : [...wds, d].sort((a, b) => a - b)
+      return { ...prev, weekdays: next, timesPerWeek: next.length }
+    })
 
   const handleSave = async () => {
     setSaving(true)
     setSaveErr('')
     try {
+      const finalMonthlyBase = (billingMode === 'fixed' || billingMode === 'actual')
+        ? monthlyTotal
+        : 0
+
       await onSave({
         ...site,
+        billingMode,
+        // fixed/actual fields
+        monthlyItems: (billingMode === 'fixed' || billingMode === 'actual') ? monthlyItems : [],
+        monthlyBase:  finalMonthlyBase,
+        // dispatch fields
+        dispatchPlan: billingMode === 'dispatch' ? dispatchPlan : [],
+        locations:    billingMode === 'dispatch' ? locations    : [],
+        // weekly fields
+        weeklySchedule: billingMode === 'weekly' ? weeklySchedule : null,
+        // shared
         shifts,
-        periodicTasks:        tasks,
+        periodicTasks: tasks,
         monthlyConsumableCost: Number(monthlyConsumableCost) || 0,
         monthlyToolCost:       Number(monthlyToolCost)       || 0,
       })
@@ -1119,6 +1226,217 @@ function EditSiteModal({ site, onSave, onClose }) {
           </button>
         </div>
 
+        {/* ── 計費模式 ─────────────────────────────────────────────────── */}
+        <div className="space-y-2 mb-6">
+          <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+            <DollarSign size={14} /> 計費模式
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {BILLING_MODES.map(m => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setBillingMode(m.id)}
+                className={clsx(
+                  'text-left rounded-xl border-2 px-3 py-2.5 transition-colors',
+                  billingMode === m.id
+                    ? 'border-brand-500 bg-brand-50'
+                    : 'border-gray-200 bg-white hover:border-gray-300',
+                )}
+              >
+                <p className="text-sm font-semibold text-gray-800">
+                  <span className="mr-1.5">{m.icon}</span>{m.label}
+                </p>
+                <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{m.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── 月固定明細（fixed / actual）──────────────────────────────── */}
+        {(billingMode === 'fixed' || billingMode === 'actual') && (
+          <div className="space-y-3 mb-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                <Layers size={14} /> 月固定明細
+              </p>
+              <span className="text-sm font-bold text-brand-700">合計 ${monthlyTotal.toLocaleString()} / 月</span>
+            </div>
+
+            {monthlyItems.length > 0 ? (
+              <div className="space-y-2">
+                {monthlyItems.map(item => (
+                  <div key={item.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                    <input
+                      className="input text-sm flex-1"
+                      placeholder="項目名稱（例：清潔人員工資）"
+                      value={item.name}
+                      onChange={e => updateMonthlyItem(item.id, 'name', e.target.value)}
+                    />
+                    <div className="relative w-32 shrink-0">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <input
+                        className="input pl-6 text-sm" type="number" min="0"
+                        value={item.amount}
+                        onChange={e => updateMonthlyItem(item.id, 'amount', e.target.value)}
+                      />
+                    </div>
+                    <button onClick={() => removeMonthlyItem(item.id)} className="text-gray-300 hover:text-red-500 shrink-0">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">尚無月固定明細</p>
+            )}
+
+            <button type="button" className="btn-secondary w-full justify-center text-sm" onClick={addMonthlyItem}>
+              <Plus size={14} /> 新增項目（如：清潔人員工資 / 機具耗材 / 管理費攤提）
+            </button>
+
+            {billingMode === 'actual' && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-relaxed">
+                💡 核實請款模式：月固定明細每月固定請款；週期任務按下方執行月份請款。
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── 派工計畫（dispatch）──────────────────────────────────────── */}
+        {billingMode === 'dispatch' && (
+          <div className="space-y-3 mb-6">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                <Calendar size={14} /> 派工計畫
+              </p>
+              <span className="text-sm font-bold text-brand-700">合約預估 ${dispatchTotal.toLocaleString()}</span>
+            </div>
+
+            {dispatchPlan.length > 0 && (
+              <div className="space-y-2">
+                {dispatchPlan.map(d => (
+                  <div key={d.id} className="bg-gray-50 rounded-xl px-3 py-2.5 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        className="input text-sm flex-1"
+                        placeholder="項目名稱（例：機動清潔 / 平時清潔 / 年度清潔）"
+                        value={d.name}
+                        onChange={e => updateDispatchItem(d.id, 'name', e.target.value)}
+                      />
+                      <button onClick={() => removeDispatchItem(d.id)} className="text-gray-300 hover:text-red-500">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="label text-[11px]">合約次數</label>
+                        <input className="input text-sm" type="number" min="0"
+                          value={d.plannedCount}
+                          onChange={e => updateDispatchItem(d.id, 'plannedCount', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="label text-[11px]">單價</label>
+                        <input className="input text-sm" type="number" min="0"
+                          value={d.unitPrice}
+                          onChange={e => updateDispatchItem(d.id, 'unitPrice', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="label text-[11px]">已使用</label>
+                        <input className="input text-sm" type="number" min="0"
+                          value={d.usedCount}
+                          onChange={e => updateDispatchItem(d.id, 'usedCount', e.target.value)} />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      剩餘 {getDispatchRemaining(d)} 次 · 合計 ${(d.plannedCount * d.unitPrice).toLocaleString()}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" className="btn-secondary w-full justify-center text-sm" onClick={addDispatchItem}>
+              <Plus size={14} /> 新增派工項目
+            </button>
+
+            {/* 子地點清單 */}
+            <div className="pt-2 border-t border-gray-100 space-y-2">
+              <p className="text-xs font-semibold text-gray-500">服務地點（多個分點）</p>
+              {locations.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {locations.map((loc, i) => (
+                    <span key={i} className="badge badge-gray text-xs flex items-center gap-1">
+                      {loc}
+                      <button onClick={() => setLocations(prev => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input className="input text-sm flex-1" placeholder="地點名稱（例：長青活動中心）" value={newLocation}
+                  onChange={e => setNewLocation(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addLocation())} />
+                <button type="button" className="btn-secondary text-sm" onClick={addLocation} disabled={!newLocation.trim()}>加入</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── 每週固定（weekly）──────────────────────────────────────── */}
+        {billingMode === 'weekly' && (
+          <div className="space-y-3 mb-6">
+            <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Calendar size={14} /> 每週固定排班
+            </p>
+            <div>
+              <p className="text-xs text-gray-500 mb-1.5">執行週幾（多選）</p>
+              <div className="flex gap-1.5">
+                {WEEKDAYS.map(w => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => toggleWeeklyWeekday(w.id)}
+                    className={clsx(
+                      'flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                      (weeklySchedule.weekdays || []).includes(w.id)
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                    )}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="label text-xs">每週次數</label>
+                <input className="input text-sm" type="number" min="0"
+                  value={weeklySchedule.timesPerWeek || 0}
+                  onChange={e => setWeeklySchedule(p => ({ ...p, timesPerWeek: Number(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <label className="label text-xs">每次單價</label>
+                <input className="input text-sm" type="number" min="0"
+                  value={weeklySchedule.unitPrice || 0}
+                  onChange={e => setWeeklySchedule(p => ({ ...p, unitPrice: Number(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <label className="label text-xs">合約週數</label>
+                <input className="input text-sm" type="number" min="0"
+                  value={weeklySchedule.weeks || 52}
+                  onChange={e => setWeeklySchedule(p => ({ ...p, weeks: Number(e.target.value) || 52 }))} />
+              </div>
+            </div>
+            <p className="text-xs text-brand-700 bg-brand-50 rounded-lg px-3 py-2">
+              年度合計：{weeklySchedule.weeks || 52} 週 × {weeklySchedule.timesPerWeek || 0} 次 × ${(weeklySchedule.unitPrice || 0).toLocaleString()} =
+              <span className="font-bold ml-1">${getWeeklyAnnualTotal(weeklySchedule).toLocaleString()}</span>
+            </p>
+          </div>
+        )}
+
         {/* ── Shifts ── */}
         <div className="space-y-3 mb-6">
           <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
@@ -1139,6 +1457,10 @@ function EditSiteModal({ site, onSave, onClose }) {
                 const endTime   = sc?.endTime   || s.endTime   || ''
                 const code      = sc?.code      || ''
                 const color     = sc?.color     || '#6b7280'
+                const wds       = Array.isArray(s.weekdays) ? s.weekdays : []
+                const wdText    = wds.length > 0 && wds.length < 7
+                  ? `週${wds.map(d => WEEKDAYS.find(w => w.id === d)?.label || '').join('')}`
+                  : '每日'
                 return (
                   <div key={s.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5">
                     <span
@@ -1148,7 +1470,7 @@ function EditSiteModal({ site, onSave, onClose }) {
                       {code || label}
                     </span>
                     <span className="text-sm text-gray-700 flex-1">
-                      {label}{startTime ? ` ${startTime}–${endTime}` : ''} · 需 {s.headcount} 人
+                      {label}{startTime ? ` ${startTime}–${endTime}` : ''} · {wdText} · 需 {s.headcount} 人
                     </span>
                     <button
                       onClick={() => setShifts(prev => prev.filter(x => x.id !== s.id))}
@@ -1184,6 +1506,26 @@ function EditSiteModal({ site, onSave, onClose }) {
                   <input className="input text-sm" type="number" min="1" value={shiftHeadcount} onChange={e => setShiftHeadcount(e.target.value)} />
                 </div>
               </div>
+              <div>
+                <p className="text-[11px] text-gray-500 mb-1">適用週幾（不選=每日）</p>
+                <div className="flex gap-1.5">
+                  {WEEKDAYS.map(w => (
+                    <button
+                      key={w.id}
+                      type="button"
+                      onClick={() => toggleShiftWeekday(w.id)}
+                      className={clsx(
+                        'flex-1 py-1 rounded-md text-xs font-medium border transition-colors',
+                        shiftWeekdays.includes(w.id)
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                      )}
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 type="button"
                 className="btn-primary w-full justify-center text-sm"
@@ -1206,9 +1548,14 @@ function EditSiteModal({ site, onSave, onClose }) {
               {tasks.map(t => (
                 <div key={t.id} className="flex items-start gap-3 bg-gray-50 rounded-xl px-3 py-2.5">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800">{t.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-gray-800">{t.name}</p>
+                      <span className="badge badge-gray text-[10px]">
+                        {SCHEDULE_TYPE_MAP[t.scheduleType || 'fixed']?.label || '固定月份'}
+                      </span>
+                    </div>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      ${t.unitPrice.toLocaleString()}/次 · {t.months.map(m => `${m}月`).join('、')}
+                      ${(t.unitPrice || 0).toLocaleString()}/次 · {getTaskScheduleText(t)}
                     </p>
                   </div>
                   <button
@@ -1243,31 +1590,88 @@ function EditSiteModal({ site, onSave, onClose }) {
                 onChange={e => setTaskPrice(e.target.value)}
               />
             </div>
+
+            {/* 排程類型 */}
             <div>
-              <p className="text-xs text-gray-500 mb-1.5">執行月份（可多選）</p>
-              <div className="flex flex-wrap gap-1.5">
-                {MONTHS_ZH.map((m, i) => (
+              <p className="text-xs text-gray-500 mb-1.5">排程類型</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {SCHEDULE_TYPES.map(t => (
                   <button
-                    key={i}
+                    key={t.id}
                     type="button"
-                    onClick={() => toggleMonth(i + 1)}
+                    onClick={() => setTaskScheduleTyp(t.id)}
                     className={clsx(
-                      'px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
-                      taskMonths.includes(i + 1)
+                      'px-2 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
+                      taskScheduleTyp === t.id
                         ? 'bg-brand-600 text-white border-brand-600'
                         : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
                     )}
                   >
-                    {m}
+                    {t.label}
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] text-gray-400 mt-1">{SCHEDULE_TYPE_MAP[taskScheduleTyp]?.desc}</p>
             </div>
+
+            {/* 月份輸入：依 scheduleType 不同顯示 */}
+            {taskScheduleTyp === 'fixed' && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1.5">執行月份（可多選）</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {MONTHS_ZH.map((m, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => toggleMonth(i + 1)}
+                      className={clsx(
+                        'px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
+                        taskMonths.includes(i + 1)
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                      )}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {taskScheduleTyp === 'range' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label text-xs">起始月份</label>
+                  <select className="input text-sm" value={taskWindowStart} onChange={e => setTaskWinStart(e.target.value)}>
+                    <option value="">選擇…</option>
+                    {MONTHS_ZH.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label text-xs">結束月份</label>
+                  <select className="input text-sm" value={taskWindowEnd} onChange={e => setTaskWinEnd(e.target.value)}>
+                    <option value="">選擇…</option>
+                    {MONTHS_ZH.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {taskScheduleTyp === 'once' && (
+              <p className="text-[11px] text-gray-500 bg-white rounded-lg px-3 py-2 border border-gray-100">
+                💡 全年只需做 1 次，可於任何月份完成
+              </p>
+            )}
+
             <button
               type="button"
               className="btn-primary w-full justify-center text-sm"
               onClick={addTask}
-              disabled={!taskName.trim() || taskMonths.length === 0}
+              disabled={
+                !taskName.trim() ||
+                (taskScheduleTyp === 'fixed' && taskMonths.length === 0) ||
+                (taskScheduleTyp === 'range' && (!taskWindowStart || !taskWindowEnd))
+              }
             >
               加入任務
             </button>
@@ -1306,12 +1710,14 @@ function EditSiteModal({ site, onSave, onClose }) {
           {/* 即時毛利預覽 */}
           {(Number(monthlyConsumableCost) > 0 || Number(monthlyToolCost) > 0) && (() => {
             const totalCost  = (Number(monthlyConsumableCost) || 0) + (Number(monthlyToolCost) || 0)
-            const grossProfit = (site.monthlyBase || 0) - totalCost
+            // 用編輯中的月固定明細加總，而非原 site.monthlyBase
+            const monthlyRevenue = (billingMode === 'fixed' || billingMode === 'actual') ? monthlyTotal : 0
+            const grossProfit    = monthlyRevenue - totalCost
             return (
               <div className="grid grid-cols-3 gap-3 bg-gray-50 rounded-xl px-4 py-3 text-center text-xs">
                 <div>
                   <p className="text-gray-400 mb-0.5">月費收入</p>
-                  <p className="font-bold text-brand-700">${(site.monthlyBase || 0).toLocaleString()}</p>
+                  <p className="font-bold text-brand-700">${monthlyRevenue.toLocaleString()}</p>
                 </div>
                 <div>
                   <p className="text-gray-400 mb-0.5">月成本合計</p>
@@ -1354,6 +1760,20 @@ function SiteSection({ site, onEdit }) {
   )
   const [isExpanded, setExpanded] = useState(true)
   const currentMonth = new Date().getMonth() + 1
+  const billingMode  = site.billingMode || 'fixed'
+  const billingMeta  = BILLING_MODE_MAP[billingMode] || BILLING_MODE_MAP.fixed
+  const monthlyBase  = getSiteMonthlyBase(site)
+
+  // header right summary depends on billingMode
+  let headerSummary = ''
+  if (billingMode === 'dispatch') {
+    const remaining = (site.dispatchPlan || []).reduce((s, d) => s + Math.max(0, (d.plannedCount || 0) - (d.usedCount || 0)), 0)
+    headerSummary = `派工剩 ${remaining} 次`
+  } else if (billingMode === 'weekly') {
+    headerSummary = `每週 ${site.weeklySchedule?.timesPerWeek || 0} 次`
+  } else {
+    headerSummary = `月費 $${monthlyBase.toLocaleString()}`
+  }
 
   return (
     <div className="card overflow-hidden">
@@ -1363,10 +1783,11 @@ function SiteSection({ site, onEdit }) {
           onClick={() => setExpanded(e => !e)}
           className="flex-1 flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Building2 size={16} className="text-brand-600 shrink-0" />
             <span className="font-semibold text-gray-900">{site.name}</span>
-            <span className="text-sm text-gray-400">月費 ${site.monthlyBase.toLocaleString()}</span>
+            <span className="badge badge-gray text-[10px]">{billingMeta.icon} {billingMeta.label}</span>
+            <span className="text-sm text-gray-400">{headerSummary}</span>
           </div>
           <div className="flex items-center gap-2">
             {(site.shifts?.length > 0) && (
@@ -1394,8 +1815,93 @@ function SiteSection({ site, onEdit }) {
 
       {isExpanded && (
         <div className="border-t border-gray-100">
+
+          {/* ── 月固定明細（fixed / actual）─────────────────────────────── */}
+          {(billingMode === 'fixed' || billingMode === 'actual') && site.monthlyItems?.length > 0 && (
+            <div className="px-4 pt-4 pb-3">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">月固定明細</p>
+              <div className="bg-gray-50 rounded-xl overflow-hidden">
+                {site.monthlyItems.map(item => (
+                  <div key={item.id} className="flex items-center justify-between px-3 py-2 border-b border-gray-100 last:border-0 text-sm">
+                    <span className="text-gray-700">{item.name || '未命名項目'}</span>
+                    <span className="font-medium text-gray-900">${(Number(item.amount) || 0).toLocaleString()}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-3 py-2 bg-gray-100 border-t border-gray-200 text-sm font-bold">
+                  <span className="text-gray-600">月固定合計</span>
+                  <span className="text-brand-700">${monthlyBase.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 派工計畫（dispatch）─────────────────────────────────────── */}
+          {billingMode === 'dispatch' && site.dispatchPlan?.length > 0 && (
+            <div className="px-4 pt-4 pb-3">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">派工計畫</p>
+              <div className="space-y-2">
+                {site.dispatchPlan.map(d => {
+                  const remaining = getDispatchRemaining(d)
+                  const used = d.usedCount || 0
+                  const total = d.plannedCount || 0
+                  const pct = total > 0 ? (used / total) * 100 : 0
+                  return (
+                    <div key={d.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-gray-800">{d.name}</span>
+                        <span className="text-gray-600">
+                          <span className="font-bold">{used}</span> / {total} 次 · ${(d.unitPrice || 0).toLocaleString()}/次
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden mt-1.5">
+                        <div className="h-full bg-brand-500 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">剩餘 {remaining} 次，可請款 ${(remaining * (d.unitPrice || 0)).toLocaleString()}</p>
+                    </div>
+                  )
+                })}
+              </div>
+              {site.locations?.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-[11px] text-gray-500 mb-1">服務地點（{site.locations.length}）</p>
+                  <div className="flex flex-wrap gap-1">
+                    {site.locations.map((l, i) => (
+                      <span key={i} className="badge badge-gray text-[10px]">{l}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 每週固定（weekly）───────────────────────────────────────── */}
+          {billingMode === 'weekly' && site.weeklySchedule && (
+            <div className="px-4 pt-4 pb-3">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">每週固定排班</p>
+              <div className="bg-gray-50 rounded-xl px-3 py-2.5 text-sm">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-gray-600">執行日：</span>
+                  {(site.weeklySchedule.weekdays || []).length > 0
+                    ? (site.weeklySchedule.weekdays || []).map(d => (
+                        <span key={d} className="badge bg-brand-100 text-brand-700 text-[10px]">
+                          {WEEKDAYS.find(w => w.id === d)?.full || `週${d}`}
+                        </span>
+                      ))
+                    : <span className="text-gray-400">未指定</span>
+                  }
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  每週 {site.weeklySchedule.timesPerWeek || 0} 次 ×
+                  ${(site.weeklySchedule.unitPrice || 0).toLocaleString()}/次 ×
+                  {site.weeklySchedule.weeks || 52} 週 =
+                  <span className="font-bold text-brand-700 ml-1">${getWeeklyAnnualTotal(site.weeklySchedule).toLocaleString()}</span>
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* ── 班次設定（唯讀）── */}
-          <div className="px-4 pt-4 pb-3">
+          <div className="px-4 pt-4 pb-3 border-t border-gray-100">
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">
               駐點班次設定
             </p>
@@ -1411,8 +1917,12 @@ function SiteSection({ site, onEdit }) {
                 <div className="space-y-2">
                   {newShifts.map(shift => {
                     const sc = shiftCodes.find(c => c.id === shift.shiftCodeId)
+                    const wds    = Array.isArray(shift.weekdays) ? shift.weekdays : []
+                    const wdText = wds.length > 0 && wds.length < 7
+                      ? wds.map(d => WEEKDAYS.find(w => w.id === d)?.label || '').join('')
+                      : ''
                     return (
-                      <div key={shift.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5">
+                      <div key={shift.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5 flex-wrap">
                         <span
                           className="text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 text-white"
                           style={{ backgroundColor: sc?.color || '#6b7280' }}
@@ -1423,6 +1933,11 @@ function SiteSection({ site, onEdit }) {
                           <Clock size={12} className="text-gray-400" />
                           {sc ? `${sc.label} ${sc.startTime}–${sc.endTime}` : '（班次代號已刪除）'}
                         </span>
+                        {wdText && (
+                          <span className="text-[11px] text-gray-500 bg-white border border-gray-200 rounded px-1.5 py-0.5">
+                            週{wdText}
+                          </span>
+                        )}
                         <span className="text-sm text-gray-500 flex items-center gap-1.5 ml-auto shrink-0">
                           <Users size={12} className="text-gray-400" />
                           需 {shift.headcount} 人
@@ -1443,15 +1958,21 @@ function SiteSection({ site, onEdit }) {
               </p>
               <div className="divide-y divide-gray-50">
                 {(site.periodicTasks || []).map(task => {
-                  const isDueThisMonth       = task.months.includes(currentMonth) && !task.completedMonths?.includes(currentMonth)
+                  const isDueThisMonth       = isTaskDueInMonth(task, currentMonth) && !task.completedMonths?.includes(currentMonth)
                   const isCompletedThisMonth = task.completedMonths?.includes(currentMonth)
+                  const scheduleType         = task.scheduleType || 'fixed'
                   return (
                     <div key={task.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
                       <div className={clsx('w-1.5 h-1.5 rounded-full shrink-0 mt-0.5', isDueThisMonth ? 'bg-amber-400' : 'bg-gray-300')} />
                       <span className="flex-1 text-gray-700 min-w-0">{task.name}</span>
-                      <span className="text-gray-400 text-xs">${task.unitPrice.toLocaleString()}/次</span>
-                      <span className="text-gray-400 text-xs">{task.months.map(m => `${m}月`).join('、')}</span>
-                      {isDueThisMonth       && <span className="badge bg-amber-100 text-amber-700 text-[10px]">本月執行</span>}
+                      {scheduleType !== 'fixed' && (
+                        <span className="badge bg-purple-100 text-purple-700 text-[10px]">
+                          {SCHEDULE_TYPE_MAP[scheduleType]?.label}
+                        </span>
+                      )}
+                      <span className="text-gray-400 text-xs">${(task.unitPrice || 0).toLocaleString()}/次</span>
+                      <span className="text-gray-400 text-xs">{getTaskScheduleText(task)}</span>
+                      {isDueThisMonth       && <span className="badge bg-amber-100 text-amber-700 text-[10px]">本月可執行</span>}
                       {isCompletedThisMonth && <span className="badge bg-green-100 text-green-700 text-[10px]">已完成</span>}
                     </div>
                   )
@@ -1463,7 +1984,7 @@ function SiteSection({ site, onEdit }) {
           {/* ── 每月成本預算（有設定才顯示）── */}
           {(site.monthlyConsumableCost > 0 || site.monthlyToolCost > 0) && (() => {
             const totalCost   = (site.monthlyConsumableCost || 0) + (site.monthlyToolCost || 0)
-            const grossProfit = (site.monthlyBase || 0) - totalCost
+            const grossProfit = monthlyBase - totalCost
             return (
               <div className="px-4 pb-4 border-t border-gray-100 pt-3">
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">每月成本預算</p>
@@ -1676,7 +2197,7 @@ function CostAnalysisTab({ contract, sites, purchases }) {
     const budget      = budgetConsumable + budgetTool
     const actual      = actualBySite[site.name] || 0
     const variance    = actual - budget
-    const revenue     = site.monthlyBase || 0
+    const revenue     = getSiteMonthlyBase(site)
     const grossProfit = revenue - actual
     return { site, budget, budgetConsumable, budgetTool, actual, variance, revenue, grossProfit }
   })
@@ -1867,7 +2388,7 @@ function ContractDetail({ contract, onBack }) {
   const monthsElapsed  = Math.max(1, (now.getFullYear() * 12 + now.getMonth()) - (start.getFullYear() * 12 + start.getMonth()) + 1)
   const totalMonths    = Math.max(1, Math.round((end - start) / (30 * 24 * 3600 * 1000)))
   const sites          = localSites
-  const monthlyTotal   = sites.reduce((s, site) => s + (site.monthlyBase || 0), 0)
+  const monthlyTotal   = getContractMonthlyTotal(sites)
   const billedSoFar    = monthlyTotal * Math.max(0, monthsElapsed - 1)
   const customerName   = contract.customerName || ''
 
@@ -1882,11 +2403,17 @@ function ContractDetail({ contract, onBack }) {
     if (!newSiteName.trim()) { setAddSiteErr('請填寫案場名稱'); return }
     setAddSiteSaving(true)
     setAddSiteErr('')
+    const baseAmount = Number(newSiteBase) || 0
     const newSite = {
       id: `site-${Date.now()}`,
       name: newSiteName.trim(),
       address: newSiteAddr.trim(),
-      monthlyBase: Number(newSiteBase) || 0,
+      billingMode: 'fixed',
+      monthlyBase: baseAmount,
+      monthlyItems: baseAmount > 0 ? [makeNewMonthlyItem('月固定費用', baseAmount)] : [],
+      dispatchPlan: [],
+      locations: [],
+      weeklySchedule: null,
       shifts: [],
       periodicTasks: [],
     }
@@ -1919,6 +2446,17 @@ function ContractDetail({ contract, onBack }) {
             <span>·</span>
             <span>{contract.contractStart} ~ {contract.contractEnd}</span>
             <span className={`badge ${STATUS_BADGE[contract.status]}`}>{STATUS_LABEL[contract.status]}</span>
+            {contract.contractNo && (
+              <span className="badge badge-gray text-[10px]">合約編號 {contract.contractNo}</span>
+            )}
+            <span className="badge bg-purple-100 text-purple-700 text-[10px]">
+              {contract.paymentMode === 'actual' ? '核實請款' : '平均攤提'}
+            </span>
+            {Array.isArray(contract.amendments) && contract.amendments.length > 0 && (
+              <span className="badge bg-amber-100 text-amber-700 text-[10px]">
+                已變更 {contract.amendments.length} 次
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -2043,12 +2581,12 @@ function AnnualContractCard({ contract, onSelect, customerName }) {
   const start   = new Date(contract.contractStart)
   const end     = new Date(contract.contractEnd)
   const pct     = Math.min(100, ((now - start) / (end - start)) * 100).toFixed(0)
-  const monthly = (contract.sites || []).reduce((s, site) => s + (site.monthlyBase || 0), 0)
+  const monthly = getContractMonthlyTotal(contract.sites || [])
 
   // Count periodic tasks due this month
   const currentMonth = now.getMonth() + 1
   const dueTasks = (contract.sites || []).flatMap(s =>
-    (s.periodicTasks || []).filter(t => t.months.includes(currentMonth) && !t.completedMonths?.includes(currentMonth))
+    (s.periodicTasks || []).filter(t => isTaskDueInMonth(t, currentMonth) && !t.completedMonths?.includes(currentMonth))
   ).length
 
   return (
@@ -2163,24 +2701,28 @@ export default function OrdersPage() {
   const [showAnnualForm,    setShowAnnualForm]    = useState(false)
   const [annualCustomerId,  setAnnualCustomerId]  = useState('')
   const [annualTitle,       setAnnualTitle]       = useState('')
+  const [annualContractNo,  setAnnualContractNo]  = useState('')
+  const [annualPaymentMode, setAnnualPaymentMode] = useState('averaged')
   const [annualStart,       setAnnualStart]       = useState('')
   const [annualEnd,         setAnnualEnd]         = useState('')
   const [annualValue,       setAnnualValue]       = useState('')
   const [annualSaving,      setAnnualSaving]      = useState(false)
   const [annualErr,         setAnnualErr]         = useState('')
   // site picker
-  const [annualSites,        setAnnualSites]       = useState([])
-  const [annualPickSiteId,   setAnnualPickSiteId]  = useState('')
-  const [annualPickMonthly,  setAnnualPickMonthly] = useState('')
-  const [annualNewSiteName,  setAnnualNewSiteName] = useState('')
-  const [annualNewSiteAddr,  setAnnualNewSiteAddr] = useState('')
-  const [annualNewMonthly,   setAnnualNewMonthly]  = useState('')
+  const [annualSites,           setAnnualSites]          = useState([])
+  const [annualPickSiteId,      setAnnualPickSiteId]     = useState('')
+  const [annualPickBillingMode, setAnnualPickBillingMode]= useState('fixed')
+  const [annualPickMonthly,     setAnnualPickMonthly]    = useState('')
+  const [annualNewSiteName,     setAnnualNewSiteName]    = useState('')
+  const [annualNewSiteAddr,     setAnnualNewSiteAddr]    = useState('')
+  const [annualNewMonthly,      setAnnualNewMonthly]     = useState('')
 
   const annualCustomer      = orgCustomers.find(c => c.id === annualCustomerId)
   const annualCustomerSites = annualCustomer?.sites || []
 
   useEffect(() => {
     setAnnualPickSiteId('')
+    setAnnualPickBillingMode('fixed')
     setAnnualPickMonthly('')
     setAnnualNewSiteName('')
     setAnnualNewSiteAddr('')
@@ -2190,7 +2732,7 @@ export default function OrdersPage() {
 
   // 自動計算合約總額 = 各案場月費合計 × 合約月數
   useEffect(() => {
-    const totalMonthly = annualSites.reduce((s, site) => s + (site.monthlyBase || 0), 0)
+    const totalMonthly = getContractMonthlyTotal(annualSites)
     if (!totalMonthly) return
     if (annualStart && annualEnd) {
       const months = Math.max(1, Math.round(
@@ -2203,26 +2745,44 @@ export default function OrdersPage() {
   }, [annualSites, annualStart, annualEnd])
 
   const addAnnualSite = () => {
+    const mode = annualPickBillingMode || 'fixed'
+    const baseFields = {
+      billingMode: mode,
+      monthlyItems: [],
+      dispatchPlan: [],
+      locations: [],
+      weeklySchedule: mode === 'weekly' ? { weekdays: [], timesPerWeek: 0, unitPrice: 0, weeks: 52 } : null,
+      shifts: [],
+      periodicTasks: [],
+    }
     if (annualPickSiteId === 'new') {
       if (!annualNewSiteName.trim()) return
+      const monthlyAmount = (mode === 'fixed' || mode === 'actual') ? (Number(annualNewMonthly) || 0) : 0
       setAnnualSites(prev => [...prev, {
         id: `new-${Date.now()}`,
         name: annualNewSiteName.trim(),
         address: annualNewSiteAddr.trim(),
-        monthlyBase: Number(annualNewMonthly) || 0,
-        periodicTasks: [],
+        ...baseFields,
+        monthlyBase: monthlyAmount,
+        monthlyItems: monthlyAmount > 0
+          ? [makeNewMonthlyItem('月固定費用', monthlyAmount)]
+          : [],
       }])
       setAnnualNewSiteName(''); setAnnualNewSiteAddr(''); setAnnualNewMonthly('')
-      setAnnualPickSiteId('')
+      setAnnualPickSiteId(''); setAnnualPickBillingMode('fixed')
     } else if (annualPickSiteId) {
       const site = annualCustomerSites.find(s => s.id === annualPickSiteId)
       if (!site || annualSites.some(s => s.id === site.id)) return
+      const monthlyAmount = (mode === 'fixed' || mode === 'actual') ? (Number(annualPickMonthly) || 0) : 0
       setAnnualSites(prev => [...prev, {
         id: site.id, name: site.name, address: site.address || '',
-        monthlyBase: Number(annualPickMonthly) || 0,
-        periodicTasks: [],
+        ...baseFields,
+        monthlyBase: monthlyAmount,
+        monthlyItems: monthlyAmount > 0
+          ? [makeNewMonthlyItem('月固定費用', monthlyAmount)]
+          : [],
       }])
-      setAnnualPickSiteId(''); setAnnualPickMonthly('')
+      setAnnualPickSiteId(''); setAnnualPickBillingMode('fixed'); setAnnualPickMonthly('')
     }
   }
 
@@ -2230,11 +2790,14 @@ export default function OrdersPage() {
     setShowAnnualForm(false)
     setAnnualCustomerId('')
     setAnnualTitle('')
+    setAnnualContractNo('')
+    setAnnualPaymentMode('averaged')
     setAnnualStart('')
     setAnnualEnd('')
     setAnnualValue('')
     setAnnualSites([])
     setAnnualPickSiteId('')
+    setAnnualPickBillingMode('fixed')
     setAnnualPickMonthly('')
     setAnnualNewSiteName('')
     setAnnualNewSiteAddr('')
@@ -2273,13 +2836,16 @@ export default function OrdersPage() {
       await addAnnualContract({
         orgId:         activeOrgId,
         title,
+        contractNo:    annualContractNo.trim(),
         customerId:    annualCustomerId,
         customerName:  customer?.name || '',
         contractStart: annualStart,
         contractEnd:   annualEnd,
         totalValue:    Number(annualValue) || 0,
+        paymentMode:   annualPaymentMode,
         status:        'active',
         sites:         annualSites,
+        amendments:    [],
       })
       closeForm()
     } catch (e) {
@@ -2307,11 +2873,14 @@ export default function OrdersPage() {
     // also reset annual fields
     setAnnualCustomerId('')
     setAnnualTitle('')
+    setAnnualContractNo('')
+    setAnnualPaymentMode('averaged')
     setAnnualStart('')
     setAnnualEnd('')
     setAnnualValue('')
     setAnnualSites([])
     setAnnualPickSiteId('')
+    setAnnualPickBillingMode('fixed')
     setAnnualPickMonthly('')
     setAnnualNewSiteName('')
     setAnnualNewSiteAddr('')
@@ -2657,9 +3226,15 @@ export default function OrdersPage() {
                   {orgCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="label">合約名稱</label>
-                <input className="input" placeholder="留空自動產生" value={annualTitle} onChange={e => setAnnualTitle(e.target.value)} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">合約名稱</label>
+                  <input className="input" placeholder="留空自動產生" value={annualTitle} onChange={e => setAnnualTitle(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">合約編號</label>
+                  <input className="input" placeholder="例：JX-115-S001" value={annualContractNo} onChange={e => setAnnualContractNo(e.target.value)} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -2671,26 +3246,57 @@ export default function OrdersPage() {
                   <input className="input" type="date" value={annualEnd} onChange={e => setAnnualEnd(e.target.value)} />
                 </div>
               </div>
+              <div>
+                <label className="label">付款方式</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'averaged', label: '平均攤提', desc: '合約總額 ÷ 12 個月，每月固定請款' },
+                    { id: 'actual',   label: '核實請款', desc: '依每月實際施作項目逐月計算' },
+                  ].map(o => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => setAnnualPaymentMode(o.id)}
+                      className={clsx(
+                        'text-left rounded-xl border-2 px-3 py-2 transition-colors',
+                        annualPaymentMode === o.id
+                          ? 'border-brand-500 bg-brand-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300',
+                      )}
+                    >
+                      <p className="text-sm font-semibold text-gray-800">{o.label}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{o.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
               {/* 案場管理 */}
               {annualCustomerId && (
                 <div className="space-y-3">
                   <label className="label">案場</label>
                   {annualSites.length > 0 && (
                     <div className="space-y-2">
-                      {annualSites.map(s => (
-                        <div key={s.id} className="flex items-center gap-2 bg-brand-50 rounded-xl px-3 py-2 text-sm">
-                          <MapPin size={13} className="text-brand-500 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-brand-700">{s.name}</p>
-                            {s.address && <p className="text-brand-400 text-xs truncate">{s.address}</p>}
-                            {s.monthlyBase > 0 && <p className="text-brand-500 text-xs">${s.monthlyBase.toLocaleString()} / 月</p>}
+                      {annualSites.map(s => {
+                        const mode = s.billingMode || 'fixed'
+                        const meta = BILLING_MODE_MAP[mode] || BILLING_MODE_MAP.fixed
+                        return (
+                          <div key={s.id} className="flex items-center gap-2 bg-brand-50 rounded-xl px-3 py-2 text-sm">
+                            <MapPin size={13} className="text-brand-500 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="font-medium text-brand-700">{s.name}</p>
+                                <span className="badge badge-gray text-[10px]">{meta.icon} {meta.label}</span>
+                              </div>
+                              {s.address && <p className="text-brand-400 text-xs truncate">{s.address}</p>}
+                              {getSiteMonthlyBase(s) > 0 && <p className="text-brand-500 text-xs">${getSiteMonthlyBase(s).toLocaleString()} / 月</p>}
+                            </div>
+                            <button type="button" className="text-gray-400 hover:text-red-500 transition-colors shrink-0"
+                              onClick={() => setAnnualSites(prev => prev.filter(x => x.id !== s.id))}>
+                              <X size={14} />
+                            </button>
                           </div>
-                          <button type="button" className="text-gray-400 hover:text-red-500 transition-colors shrink-0"
-                            onClick={() => setAnnualSites(prev => prev.filter(x => x.id !== s.id))}>
-                            <ChevronDown size={14} className="rotate-[-90deg]" />
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                   <div className="space-y-2 bg-gray-50 rounded-xl p-3 border border-dashed border-gray-200">
@@ -2710,16 +3316,42 @@ export default function OrdersPage() {
                       </div>
                     )}
                     {annualPickSiteId && (
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                          <input className="input pl-6 text-sm" type="number" min="0" placeholder="月費（選填）"
-                            value={annualPickSiteId === 'new' ? annualNewMonthly : annualPickMonthly}
-                            onChange={e => annualPickSiteId === 'new' ? setAnnualNewMonthly(e.target.value) : setAnnualPickMonthly(e.target.value)} />
+                      <>
+                        <div>
+                          <p className="text-[11px] text-gray-500 mb-1">案場計費模式</p>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {BILLING_MODES.map(m => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => setAnnualPickBillingMode(m.id)}
+                                className={clsx(
+                                  'text-left rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors',
+                                  annualPickBillingMode === m.id
+                                    ? 'border-brand-500 bg-white text-brand-700 font-semibold'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
+                                )}
+                              >
+                                {m.icon} {m.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        <button type="button" className="btn-primary shrink-0" onClick={addAnnualSite}
-                          disabled={annualPickSiteId === 'new' && !annualNewSiteName.trim()}>加入</button>
-                      </div>
+                        <div className="flex items-center gap-2">
+                          {(annualPickBillingMode === 'fixed' || annualPickBillingMode === 'actual') ? (
+                            <div className="relative flex-1">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                              <input className="input pl-6 text-sm" type="number" min="0" placeholder="月費（選填，可後續細拆明細）"
+                                value={annualPickSiteId === 'new' ? annualNewMonthly : annualPickMonthly}
+                                onChange={e => annualPickSiteId === 'new' ? setAnnualNewMonthly(e.target.value) : setAnnualPickMonthly(e.target.value)} />
+                            </div>
+                          ) : (
+                            <p className="flex-1 text-[11px] text-gray-500 px-1">先建立案場，加入後到編輯頁設定派工計畫或每週排程</p>
+                          )}
+                          <button type="button" className="btn-primary shrink-0" onClick={addAnnualSite}
+                            disabled={annualPickSiteId === 'new' && !annualNewSiteName.trim()}>加入</button>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -2728,11 +3360,12 @@ export default function OrdersPage() {
               <div>
                 <label className="label">合約總額</label>
                 {annualSites.length > 0 && annualStart && annualEnd && (() => {
-                  const totalMonthly = annualSites.reduce((s, site) => s + (site.monthlyBase || 0), 0)
+                  const totalMonthly = getContractMonthlyTotal(annualSites)
                   const months = Math.max(1, Math.round((new Date(annualEnd) - new Date(annualStart)) / (1000 * 60 * 60 * 24 * 30.44)))
                   return totalMonthly > 0 ? (
                     <p className="text-xs text-gray-400 mb-1">
-                      月費合計 ${totalMonthly.toLocaleString()} × {months} 個月 = ${(totalMonthly * months).toLocaleString()}
+                      月固定合計 ${totalMonthly.toLocaleString()} × {months} 個月 = ${(totalMonthly * months).toLocaleString()}
+                      <span className="ml-1 text-gray-300">（不含派工/週次型案場與週期任務）</span>
                     </p>
                   ) : null
                 })()}

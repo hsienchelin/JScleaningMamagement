@@ -3,6 +3,7 @@ import { Archive, MapPin, Building2, Calendar, DollarSign, Search, ChevronDown, 
 import { COL } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
+import { getSiteMonthlyBase, getContractMonthlyTotal } from '../utils/contractSchema'
 import clsx from 'clsx'
 
 const CLEAN_TYPE_LABEL = {
@@ -81,7 +82,7 @@ function OrderCard({ order, customers }) {
 function ContractCard({ contract, customers }) {
   const [open, setOpen] = useState(false)
   const customer = customers.find(c => c.id === contract.customerId)
-  const totalAnnual = (contract.sites || []).reduce((s, site) => s + (site.monthlyBase || 0) * 12, 0)
+  const totalAnnual = getContractMonthlyTotal(contract.sites || []) * 12
 
   return (
     <div className="card overflow-hidden">
@@ -130,7 +131,7 @@ function ContractCard({ contract, customers }) {
                 {contract.sites.map(s => (
                   <div key={s.id} className="flex items-center justify-between text-sm bg-white rounded-lg px-3 py-2">
                     <span className="text-gray-700">{s.name}</span>
-                    <span className="text-gray-400 text-xs">月費 {fmt(s.monthlyBase)}</span>
+                    <span className="text-gray-400 text-xs">月費 {fmt(getSiteMonthlyBase(s))}</span>
                   </div>
                 ))}
               </div>
