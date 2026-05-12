@@ -10,7 +10,32 @@ import { useOrg } from '../contexts/OrgContext'
 import { MOCK_EMPLOYEES, MOCK_INVENTORY_ITEMS, PRESET_TASKS, ORGS } from '../lib/mockData'
 import { COL, addWorkOrder, updateWorkOrder, updateOrder, updateAnnualContract } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
+import { getTaskScheduleText } from '../utils/contractSchema'
 import clsx from 'clsx'
+
+// 找出某日「排班已排定」的所有週期任務，跨所有合約/案場
+function getScheduledTasksForDate(dateStr, annualContracts) {
+  if (!dateStr) return []
+  return annualContracts.flatMap(contract =>
+    (contract.sites || []).flatMap(site =>
+      (site.periodicTasks || [])
+        .filter(t => t.scheduledDate === dateStr)
+        .map(t => ({
+          contractId:    contract.id,
+          contractTitle: contract.title,
+          customerName:  contract.customerName,
+          siteId:        site.id,
+          siteName:      site.name,
+          siteAddress:   site.address || '',
+          taskId:        t.id,
+          taskName:      t.name,
+          unitPrice:     t.unitPrice || 0,
+          scheduleType:  t.scheduleType || 'fixed',
+          months:        t.months || [],
+        }))
+    )
+  )
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TODAY = new Date().toISOString().slice(0, 10)
@@ -499,6 +524,32 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
   const contractSites = annualContracts.find(c => c.id === form.contractId)?.sites || []
   const contractTasks = contractSites.find(s => s.id === form.contractSiteId)?.periodicTasks || []
 
+  // 排班→請款連動：找出第一個 session 的日期排定了哪些週期任務
+  const reportDate = form.sessions?.[0]?.date || ''
+  const scheduledToday = useMemo(
+    () => getScheduledTasksForDate(reportDate, annualContracts),
+    [reportDate, annualContracts]
+  )
+
+  // 點「今日排定」卡片 → 一鍵帶入合約/案場/任務
+  const fillFromScheduled = (s) => {
+    set({
+      linkType:       'periodic',
+      contractId:     s.contractId,
+      contractSiteId: s.siteId,
+      siteName:       s.siteName,
+      siteAddress:    s.siteAddress,
+      taskId:         s.taskId,
+      taskName:       s.taskName,
+    })
+  }
+
+  // 下拉選單排序：把今日排定的任務排到最上面
+  const sortedContractTasks = useMemo(() => {
+    const isScheduledToday = (t) => t.scheduledDate === reportDate
+    return [...contractTasks].sort((a, b) => Number(isScheduledToday(b)) - Number(isScheduledToday(a)))
+  }, [contractTasks, reportDate])
+
   const addSession    = () => set({ sessions: [...form.sessions, newSession()] })
   const removeSession = (id) => set({ sessions: form.sessions.filter(s => s.id !== id) })
   const updateSession = (id, updated) => set({ sessions: form.sessions.map(s => s.id === id ? updated : s) })
@@ -529,6 +580,44 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
           <Send size={15} /> 提交
         </button>
       </div>
+
+      {/* ── 今日排定（依第一個 session 日期、跨合約找出已排定的週期任務）── */}
+      {scheduledToday.length > 0 && !form.taskId && (
+        <div className="card overflow-hidden border border-amber-200 bg-amber-50/40">
+          <div className="px-5 py-3 flex items-center gap-2 border-b border-amber-100 bg-amber-100/60">
+            <Calendar size={15} className="text-amber-600" />
+            <p className="text-sm font-bold text-amber-800">
+              {reportDate} 已排定 {scheduledToday.length} 項
+            </p>
+            <p className="text-[11px] text-amber-700 ml-auto">點卡片一鍵帶入</p>
+          </div>
+          <div className="p-3 space-y-2">
+            {scheduledToday.map(s => (
+              <button
+                key={`${s.contractId}_${s.siteId}_${s.taskId}`}
+                type="button"
+                onClick={() => fillFromScheduled(s)}
+                className="w-full text-left bg-white rounded-xl border border-amber-200 hover:border-brand-400 hover:shadow-sm transition-all px-4 py-3"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{s.taskName}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      <Building2 size={11} className="inline-block mr-0.5 -mt-0.5" />
+                      {s.customerName} · {s.siteName}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-0.5 truncate">{s.contractTitle}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-base font-bold text-brand-700">${s.unitPrice.toLocaleString()}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">點選帶入 →</p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Basic Info */}
       <Section icon={FileText} title="基本資訊">
@@ -605,13 +694,16 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
                   <label className="label">週期項目</label>
                   <select className="input" value={form.taskId || ''} onChange={e => handleTaskChange(e.target.value)}>
                     <option value="">選擇週期項目…</option>
-                    {contractTasks.map(t => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}（{t.months.map(m => `${m}月`).join('、')}）
-                      </option>
-                    ))}
+                    {sortedContractTasks.map(t => {
+                      const isToday = t.scheduledDate === reportDate
+                      return (
+                        <option key={t.id} value={t.id}>
+                          {isToday ? '★ ' : ''}{t.name}（{getTaskScheduleText(t)}）
+                        </option>
+                      )
+                    })}
                   </select>
-                  {form.taskId && <p className="text-xs text-teal-600 mt-1">核准後自動標記此週期項目本月完成</p>}
+                  {form.taskId && <p className="text-xs text-teal-600 mt-1">核准後：本月標完成 + 排班計畫日清空</p>}
                 </div>
               )}
             </div>
@@ -836,18 +928,27 @@ export default function DailyReportPage() {
     if (r.linkType === 'periodic' && r.contractId && r.contractSiteId && r.taskId) {
       const contract     = annualContractsRaw.find(c => c.id === r.contractId)
       const currentMonth = new Date().getMonth() + 1
+      const reportDate   = r.sessions?.[0]?.date || ''
       if (contract) {
-        const newSites = (contract.sites || []).map(site =>
-          site.id !== r.contractSiteId ? site : {
+        const newSites = (contract.sites || []).map(site => {
+          if (site.id !== r.contractSiteId) return site
+          return {
             ...site,
-            periodicTasks: (site.periodicTasks || []).map(task =>
-              task.id !== r.taskId ? task : {
+            periodicTasks: (site.periodicTasks || []).map(task => {
+              if (task.id !== r.taskId) return task
+              const updated = {
                 ...task,
-                completedMonths: [...new Set([...(task.completedMonths || []), currentMonth])],
+                completedMonths:    [...new Set([...(task.completedMonths || []), currentMonth])],
+                lastCompletedDate:  reportDate || task.lastCompletedDate || '',
               }
-            ),
+              // 核准後回寫排班：若請款單日期 = 排班計畫日，清掉計畫日避免重複亮燈
+              if (task.scheduledDate && task.scheduledDate === reportDate) {
+                updated.scheduledDate = null
+              }
+              return updated
+            }),
           }
-        )
+        })
         await updateAnnualContract(r.contractId, { sites: newSites })
       }
     }
