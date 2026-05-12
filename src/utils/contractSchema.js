@@ -77,20 +77,39 @@ export function getContractMonthlyTotal(sites = []) {
   }, 0)
 }
 
-// ─── 判斷週期任務在指定月份是否需執行 ─────────────────────────────────────────
-export function isTaskDueInMonth(task, month) {
+// ─── 判斷週期任務在「該月所屬的執行週期」是否已完成 ──────────────────────────
+// fixed：每個月份獨立 → 只看該月本身是否在 completedMonths
+// range：整個區間共用 1 個完成記錄 → 候選月份內任一月在 completedMonths 就算完成
+// once：全年共用 1 個完成記錄 → completedMonths 有任何月份就算完成
+export function isTaskCompletedInPeriod(task, month) {
   if (!task) return false
-  const type = task.scheduleType || 'fixed'
+  const completed = task.completedMonths || []
+  const type      = task.scheduleType || 'fixed'
   if (type === 'fixed') {
-    return Array.isArray(task.months) && task.months.includes(month)
+    return completed.includes(month)
   }
   if (type === 'range') {
-    // 區間任務：months 陣列代表「候選月份」，預設整個區間都算「可執行」
+    const candidates = task.months || []
+    return candidates.some(m => completed.includes(m))
+  }
+  if (type === 'once') {
+    return completed.length > 0
+  }
+  return false
+}
+
+// ─── 判斷週期任務在指定月份是否需執行（已完成則回 false）────────────────────
+export function isTaskDueInMonth(task, month) {
+  if (!task) return false
+  // 如果這個 period 已經完成，就不再提醒
+  if (isTaskCompletedInPeriod(task, month)) return false
+  const type = task.scheduleType || 'fixed'
+  if (type === 'fixed' || type === 'range') {
     return Array.isArray(task.months) && task.months.includes(month)
   }
   if (type === 'once') {
-    // 全年一次：未完成前都算「可執行」
-    return !(task.completedMonths?.length > 0)
+    // 全年一次：未完成前每個月都可執行
+    return true
   }
   return false
 }

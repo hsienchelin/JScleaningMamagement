@@ -13,7 +13,8 @@ import { useOrg } from '../contexts/OrgContext'
 import clsx from 'clsx'
 import {
   BILLING_MODES, BILLING_MODE_MAP, SCHEDULE_TYPES, SCHEDULE_TYPE_MAP,
-  getSiteMonthlyBase, getContractMonthlyTotal, isTaskDueInMonth, getTaskScheduleText,
+  getSiteMonthlyBase, getContractMonthlyTotal,
+  isTaskDueInMonth, isTaskCompletedInPeriod, getTaskScheduleText,
   rangeMonths, getDispatchRemaining, getDispatchRevenueMax, getWeeklyAnnualTotal,
   WEEKDAYS, makeNewSite, makeNewMonthlyItem, makeNewDispatchPlanItem,
 } from '../utils/contractSchema'
@@ -869,8 +870,12 @@ function TaskMatrix({ sites }) {
                       <td className="px-3 py-2 text-right text-gray-500">${(task.unitPrice || 0).toLocaleString()}</td>
                       {Array.from({ length: 12 }, (_, i) => {
                         const m         = i + 1
-                        const scheduled = isTaskDueInMonth(task, m)
-                        const completed = task.completedMonths?.includes(m)
+                        // TaskMatrix 顯示原始排定月份（含已完成），由 completed 旗標決定樣式
+                        const scheduleType  = task.scheduleType || 'fixed'
+                        const scheduled     = scheduleType === 'once'
+                          ? true  // once 任務每個月都可執行
+                          : Array.isArray(task.months) && task.months.includes(m)
+                        const completed     = isTaskCompletedInPeriod(task, m)
                         const isCurrent = m === currentMonth
                         const isPast    = m < currentMonth && scheduled && !completed
                         return (
@@ -922,7 +927,7 @@ function BillingDraft({ contract, sites = [] }) {
 
   const periodicThisMonth = sites.flatMap(site =>
     (site.periodicTasks || [])
-      .filter(t => isTaskDueInMonth(t, currentMonth) && !t.completedMonths?.includes(currentMonth))
+      .filter(t => isTaskDueInMonth(t, currentMonth))
       .map(t => ({ ...t, siteName: site.name }))
   )
 
@@ -1958,8 +1963,8 @@ function SiteSection({ site, onEdit }) {
               </p>
               <div className="divide-y divide-gray-50">
                 {(site.periodicTasks || []).map(task => {
-                  const isDueThisMonth       = isTaskDueInMonth(task, currentMonth) && !task.completedMonths?.includes(currentMonth)
-                  const isCompletedThisMonth = task.completedMonths?.includes(currentMonth)
+                  const isDueThisMonth       = isTaskDueInMonth(task, currentMonth)
+                  const isCompletedThisMonth = isTaskCompletedInPeriod(task, currentMonth)
                   const scheduleType         = task.scheduleType || 'fixed'
                   return (
                     <div key={task.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
@@ -2586,7 +2591,7 @@ function AnnualContractCard({ contract, onSelect, customerName }) {
   // Count periodic tasks due this month
   const currentMonth = now.getMonth() + 1
   const dueTasks = (contract.sites || []).flatMap(s =>
-    (s.periodicTasks || []).filter(t => isTaskDueInMonth(t, currentMonth) && !t.completedMonths?.includes(currentMonth))
+    (s.periodicTasks || []).filter(t => isTaskDueInMonth(t, currentMonth))
   ).length
 
   return (
