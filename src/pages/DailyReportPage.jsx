@@ -506,6 +506,7 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
     set({
       linkType, orderId: '', orderName: '',
       contractId: '', contractSiteId: '', taskId: '', taskName: '',
+      dispatchItemId: '', dispatchItemName: '', dispatchLocation: '',
       siteName: '', siteAddress: '',
       sessions: cleanedSessions,
     })
@@ -524,8 +525,13 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
   const handleContractSiteChange = (contractSiteId) => {
     const contract = annualContracts.find(c => c.id === form.contractId)
     const site     = (contract?.sites || []).find(s => s.id === contractSiteId)
-    set({ contractSiteId, siteName: site?.name || '', siteAddress: site?.address || '',
-          taskId: '', taskName: '' })
+    set({
+      contractSiteId,
+      siteName: site?.name || '',
+      siteAddress: site?.address || '',
+      taskId: '', taskName: '',
+      dispatchItemId: '', dispatchItemName: '', dispatchLocation: '',
+    })
   }
 
   const handleTaskChange = (taskId) => {
@@ -599,10 +605,21 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
   const removeSession = (id) => set({ sessions: form.sessions.filter(s => s.id !== id) })
   const updateSession = (id, updated) => set({ sessions: form.sessions.map(s => s.id === id ? updated : s) })
 
+  // 選定案場的 billingMode（給 subtitle 與後續動態 UI）
+  const selectedContractSite = contractSites.find(s => s.id === form.contractSiteId)
+  const selectedSiteMode     = selectedContractSite?.billingMode || 'fixed'
+
   const subtitle = form.linkType === 'order'
     ? (form.siteName || form.orderName || '尚未選擇訂單')
     : form.linkType === 'periodic'
-    ? (form.taskName ? `${form.siteName} — ${form.taskName}` : '尚未選擇週期項目')
+    ? (() => {
+        if (!form.contractSiteId) return '尚未選擇案場'
+        if (selectedSiteMode === 'weekly')   return `${form.siteName} — 週次訪視`
+        if (selectedSiteMode === 'dispatch') return form.dispatchItemId
+          ? `${form.siteName} — ${form.dispatchItemName}${form.dispatchLocation ? `・${form.dispatchLocation}` : ''}`
+          : `${form.siteName} — 尚未選擇派工類型`
+        return form.taskName ? `${form.siteName} — ${form.taskName}` : '尚未選擇週期項目'
+      })()
     : '不關聯'
 
   const status   = form.status || 'draft'
@@ -767,23 +784,91 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
                   </select>
                 </div>
               )}
-              {form.contractSiteId && (
-                <div>
-                  <label className="label">週期項目</label>
-                  <select className="input" value={form.taskId || ''} onChange={e => handleTaskChange(e.target.value)}>
-                    <option value="">選擇週期項目…</option>
-                    {sortedContractTasks.map(t => {
-                      const isToday = t.scheduledDate === reportDate
-                      return (
-                        <option key={t.id} value={t.id}>
-                          {isToday ? '★ ' : ''}{t.name}（{getTaskScheduleText(t)}）
-                        </option>
-                      )
-                    })}
-                  </select>
-                  {form.taskId && <p className="text-xs text-teal-600 mt-1">核准後：本月標完成 + 排班計畫日清空</p>}
-                </div>
-              )}
+              {form.contractSiteId && (() => {
+                const selectedSite = contractSites.find(s => s.id === form.contractSiteId)
+                const siteMode = selectedSite?.billingMode || 'fixed'
+
+                // weekly：固定按次計，不需選任務，顯示訪視資訊
+                if (siteMode === 'weekly') {
+                  const ws = selectedSite.weeklySchedule || {}
+                  return (
+                    <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 space-y-1.5">
+                      <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">🗓 每週固定訪視</p>
+                      <p className="text-sm text-gray-800">
+                        每次 ${(ws.unitPrice || 0).toLocaleString()}
+                        {ws.timesPerWeek > 0 && <span className="text-gray-500 text-xs ml-1">（每週 {ws.timesPerWeek} 次）</span>}
+                      </p>
+                      <p className="text-[11px] text-purple-600">核准後將自動加入本月訪視紀錄，按次計費</p>
+                    </div>
+                  )
+                }
+
+                // dispatch：按次派工，需選類型 + 地點
+                if (siteMode === 'dispatch') {
+                  const plan      = selectedSite.dispatchPlan || []
+                  const locs      = selectedSite.locations    || []
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="label">派工類型 *</label>
+                        <select
+                          className="input"
+                          value={form.dispatchItemId || ''}
+                          onChange={e => {
+                            const item = plan.find(p => p.id === e.target.value)
+                            set({ dispatchItemId: e.target.value, dispatchItemName: item?.name || '' })
+                          }}
+                        >
+                          <option value="">選擇派工類型…</option>
+                          {plan.map(p => {
+                            const remaining = Math.max(0, (p.plannedCount || 0) - (p.usedCount || 0))
+                            return (
+                              <option key={p.id} value={p.id}>
+                                {p.name}（${p.unitPrice?.toLocaleString()}・剩 {remaining} 次）
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">服務地點 *</label>
+                        <select
+                          className="input"
+                          value={form.dispatchLocation || ''}
+                          onChange={e => set({ dispatchLocation: e.target.value })}
+                        >
+                          <option value="">選擇地點…</option>
+                          {locs.map((l, i) => (
+                            <option key={i} value={l}>{l}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {form.dispatchItemId && form.dispatchLocation && (
+                        <p className="text-xs text-teal-600">核准後：派工 usedCount +1，計入本月請款</p>
+                      )}
+                    </div>
+                  )
+                }
+
+                // fixed / actual：標準週期任務選擇
+                return (
+                  <div>
+                    <label className="label">週期項目</label>
+                    <select className="input" value={form.taskId || ''} onChange={e => handleTaskChange(e.target.value)}>
+                      <option value="">選擇週期項目…</option>
+                      {sortedContractTasks.map(t => {
+                        const isToday = t.scheduledDate === reportDate
+                        return (
+                          <option key={t.id} value={t.id}>
+                            {isToday ? '★ ' : ''}{t.name}（{getTaskScheduleText(t)}）
+                          </option>
+                        )
+                      })}
+                    </select>
+                    {form.taskId && <p className="text-xs text-teal-600 mt-1">核准後：本月標完成 + 排班計畫日清空</p>}
+                  </div>
+                )
+              })()}
             </div>
           )}
 
@@ -856,7 +941,7 @@ function ReportDetail({ report, onBack, onEdit, onApprove }) {
         <button className="btn-secondary" onClick={onEdit}><Pencil size={15} /> 編輯</button>
       </div>
 
-      {/* 關聯資訊（單次 / 週期項目）*/}
+      {/* 關聯資訊：週期項目 */}
       {report.linkType === 'periodic' && report.taskName && (
         <div className="card border border-amber-200 bg-amber-50/40 px-4 py-3">
           <div className="flex items-start gap-2.5">
@@ -865,6 +950,32 @@ function ReportDetail({ report, onBack, onEdit, onApprove }) {
               <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">年度合約週期項目</p>
               <p className="text-sm font-bold text-gray-800 mt-0.5">{report.taskName}</p>
               <p className="text-xs text-gray-500 mt-0.5">{report.siteName} · 核准後將標記為本月完成 + 清空排班計畫日</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 關聯資訊：weekly 訪視 */}
+      {report.linkType === 'periodic' && !report.taskName && !report.dispatchItemId && report.contractSiteId && (
+        <div className="card border border-purple-200 bg-purple-50/40 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <Calendar size={14} className="text-purple-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-purple-700 uppercase tracking-wide">年度合約・每週固定訪視</p>
+              <p className="text-sm font-bold text-gray-800 mt-0.5">{report.siteName}</p>
+              <p className="text-xs text-gray-500 mt-0.5">核准後將加入本月訪視紀錄、按次計費</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 關聯資訊：dispatch 派工 */}
+      {report.linkType === 'periodic' && report.dispatchItemId && (
+        <div className="card border border-cyan-200 bg-cyan-50/40 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <Calendar size={14} className="text-cyan-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-cyan-700 uppercase tracking-wide">年度合約・按次派工</p>
+              <p className="text-sm font-bold text-gray-800 mt-0.5">{report.dispatchItemName}{report.dispatchLocation ? `・${report.dispatchLocation}` : ''}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{report.siteName} · 核准後將派工 usedCount +1</p>
             </div>
           </div>
         </div>
@@ -1014,6 +1125,9 @@ export default function DailyReportPage() {
     contractSiteId:  '',
     taskId:          '',
     taskName:        '',
+    dispatchItemId:   '',
+    dispatchItemName: '',
+    dispatchLocation: '',
     siteName:        '',
     siteAddress:     '',
     leaderId:        '',
@@ -1031,13 +1145,60 @@ export default function DailyReportPage() {
     if (r.linkType === 'order' && r.orderId) {
       await updateOrder(r.orderId, { status: 'done' })
     }
-    if (r.linkType === 'periodic' && r.contractId && r.contractSiteId && r.taskId) {
+    if (r.linkType === 'periodic' && r.contractId && r.contractSiteId) {
       const contract     = annualContractsRaw.find(c => c.id === r.contractId)
       const currentMonth = new Date().getMonth() + 1
       const reportDate   = r.sessions?.[0]?.date || ''
       if (contract) {
         const newSites = (contract.sites || []).map(site => {
           if (site.id !== r.contractSiteId) return site
+          const mode = site.billingMode || 'fixed'
+
+          // ── weekly：加入訪視紀錄 ────────────────────────────────────────
+          if (mode === 'weekly') {
+            const visits = site.weeklyVisits || []
+            return {
+              ...site,
+              weeklyVisits: [
+                ...visits,
+                {
+                  id:        `v-${Date.now()}`,
+                  date:      reportDate,
+                  reportId:  r.id,
+                  leaderId:  r.leaderId || '',
+                  leaderName: r.leaderName || '',
+                },
+              ],
+            }
+          }
+
+          // ── dispatch：把派工項目 usedCount +1 + 寫 usageHistory ─────────
+          if (mode === 'dispatch') {
+            return {
+              ...site,
+              dispatchPlan: (site.dispatchPlan || []).map(d => {
+                if (d.id !== r.dispatchItemId) return d
+                return {
+                  ...d,
+                  usedCount: (Number(d.usedCount) || 0) + 1,
+                  usageHistory: [
+                    ...(d.usageHistory || []),
+                    {
+                      id:        `u-${Date.now()}`,
+                      date:      reportDate,
+                      location:  r.dispatchLocation || '',
+                      reportId:  r.id,
+                      leaderId:  r.leaderId || '',
+                      leaderName: r.leaderName || '',
+                    },
+                  ],
+                }
+              }),
+            }
+          }
+
+          // ── fixed / actual：標 completedMonths + 清排班計畫日（既有邏輯）─
+          if (!r.taskId) return site
           return {
             ...site,
             periodicTasks: (site.periodicTasks || []).map(task => {
@@ -1047,7 +1208,6 @@ export default function DailyReportPage() {
                 completedMonths:    [...new Set([...(task.completedMonths || []), currentMonth])],
                 lastCompletedDate:  reportDate || task.lastCompletedDate || '',
               }
-              // 核准後回寫排班：若請款單日期 = 排班計畫日，清掉計畫日避免重複亮燈
               if (task.scheduledDate && task.scheduledDate === reportDate) {
                 updated.scheduledDate = null
               }

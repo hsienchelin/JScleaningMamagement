@@ -922,8 +922,16 @@ function TaskMatrix({ sites }) {
 // ─── Billing Draft ────────────────────────────────────────────────────────────
 function BillingDraft({ contract, sites = [] }) {
   const now          = new Date()
+  const currentYear  = now.getFullYear()
   const currentMonth = now.getMonth() + 1
-  const monthLabel   = `${now.getFullYear()}年${currentMonth}月`
+  const monthLabel   = `${currentYear}年${currentMonth}月`
+
+  // 判斷日期字串是否在本月
+  const isInCurrentMonth = (dateStr) => {
+    if (!dateStr) return false
+    const d = new Date(dateStr)
+    return d.getFullYear() === currentYear && (d.getMonth() + 1) === currentMonth
+  }
 
   // 已完成（本月實際執行 → 已通過工務請款單核准）的週期任務才列入請款
   const periodicCompleted = sites.flatMap(site =>
@@ -941,9 +949,41 @@ function BillingDraft({ contract, sites = [] }) {
       .map(t => ({ ...t, siteName: site.name }))
   )
 
+  // ── weekly：本月已核准的訪視紀錄 ──────────────────────────────────────────
+  const weeklyRows = sites
+    .filter(s => (s.billingMode || 'fixed') === 'weekly')
+    .map(s => {
+      const visits = (s.weeklyVisits || []).filter(v => isInCurrentMonth(v.date))
+      const unit   = Number(s.weeklySchedule?.unitPrice) || 0
+      return {
+        siteId: s.id, siteName: s.name,
+        count: visits.length,
+        unitPrice: unit,
+        subtotal: visits.length * unit,
+      }
+    })
+    .filter(r => r.count > 0 || r.unitPrice > 0)  // 至少顯示有設定的
+  const weeklyTotal = weeklyRows.reduce((s, r) => s + r.subtotal, 0)
+
+  // ── dispatch：本月已核准的派工次數（從 usageHistory 統計）────────────────
+  const dispatchRows = sites
+    .filter(s => (s.billingMode || 'fixed') === 'dispatch')
+    .flatMap(s => (s.dispatchPlan || []).map(d => {
+      const usages = (d.usageHistory || []).filter(u => isInCurrentMonth(u.date))
+      return {
+        siteId: s.id, siteName: s.name,
+        itemId: d.id, itemName: d.name,
+        count: usages.length,
+        unitPrice: Number(d.unitPrice) || 0,
+        subtotal: usages.length * (Number(d.unitPrice) || 0),
+      }
+    }))
+    .filter(r => r.count > 0)
+  const dispatchTotal = dispatchRows.reduce((s, r) => s + r.subtotal, 0)
+
   const stationedTotal = getContractMonthlyTotal(sites)
   const periodicTotal  = periodicCompleted.reduce((s, t) => s + (t.unitPrice || 0), 0)
-  const grandTotal     = stationedTotal + periodicTotal
+  const grandTotal     = stationedTotal + periodicTotal + weeklyTotal + dispatchTotal
   const taxTotal       = Math.round(grandTotal * 1.05)
 
   return (
@@ -1068,6 +1108,58 @@ function BillingDraft({ contract, sites = [] }) {
               </>
             )}
 
+            {/* Weekly visits ──────────────────────────────────────────── */}
+            {weeklyRows.length > 0 && (
+              <>
+                <tr>
+                  <td colSpan={6} className="px-4 py-2 bg-purple-50/60 text-[11px] font-semibold text-purple-700 border-t border-purple-100">
+                    每週固定訪視（本月已核准 = 計入請款）
+                  </td>
+                </tr>
+                {weeklyRows.map(r => (
+                  <tr key={`w-${r.siteId}`} className="border-t border-gray-50 hover:bg-gray-50/30">
+                    <td className="px-4 py-2.5 text-gray-800">{r.siteName}　週次訪視</td>
+                    <td className="px-3 py-2.5 text-center text-gray-500">次</td>
+                    <td className="px-3 py-2.5 text-center text-gray-700 font-semibold">{r.count}</td>
+                    <td className="px-3 py-2.5 text-right text-gray-700">${r.unitPrice.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-gray-900">${r.subtotal.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400 hidden md:table-cell">{r.count} 次 × ${r.unitPrice.toLocaleString()}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-gray-200 bg-gray-50/60">
+                  <td colSpan={4} className="px-4 py-2 text-right text-xs font-semibold text-gray-500">週次訪視小計</td>
+                  <td className="px-4 py-2 text-right font-semibold text-gray-800">${weeklyTotal.toLocaleString()}</td>
+                  <td className="hidden md:table-cell" />
+                </tr>
+              </>
+            )}
+
+            {/* Dispatch usage ─────────────────────────────────────────── */}
+            {dispatchRows.length > 0 && (
+              <>
+                <tr>
+                  <td colSpan={6} className="px-4 py-2 bg-cyan-50/60 text-[11px] font-semibold text-cyan-700 border-t border-cyan-100">
+                    按次派工（本月已核准 = 計入請款）
+                  </td>
+                </tr>
+                {dispatchRows.map(r => (
+                  <tr key={`d-${r.siteId}-${r.itemId}`} className="border-t border-gray-50 hover:bg-gray-50/30">
+                    <td className="px-4 py-2.5 text-gray-800">{r.siteName}　{r.itemName}</td>
+                    <td className="px-3 py-2.5 text-center text-gray-500">次</td>
+                    <td className="px-3 py-2.5 text-center text-gray-700 font-semibold">{r.count}</td>
+                    <td className="px-3 py-2.5 text-right text-gray-700">${r.unitPrice.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-gray-900">${r.subtotal.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-400 hidden md:table-cell">{r.count} 次 × ${r.unitPrice.toLocaleString()}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-gray-200 bg-gray-50/60">
+                  <td colSpan={4} className="px-4 py-2 text-right text-xs font-semibold text-gray-500">按次派工小計</td>
+                  <td className="px-4 py-2 text-right font-semibold text-gray-800">${dispatchTotal.toLocaleString()}</td>
+                  <td className="hidden md:table-cell" />
+                </tr>
+              </>
+            )}
+
             {/* Grand total */}
             <tr className="border-t-2 border-gray-300 bg-gray-50">
               <td colSpan={4} className="px-4 py-3 text-right font-bold text-gray-700">本月請款合計（未稅）</td>
@@ -1083,9 +1175,9 @@ function BillingDraft({ contract, sites = [] }) {
         </table>
       </div>
 
-      {periodicCompleted.length === 0 && periodicPending.length === 0 && (
+      {periodicCompleted.length === 0 && periodicPending.length === 0 && weeklyRows.length === 0 && dispatchRows.length === 0 && (
         <div className="text-center py-4 text-sm text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-          本月無已核准完成或排定的週期性項目
+          本月無已核准完成的週期/訪視/派工項目
         </div>
       )}
     </div>
@@ -1096,13 +1188,23 @@ function BillingDraft({ contract, sites = [] }) {
 function EditSiteModal({ site, onSave, onClose }) {
   const { activeOrgId } = useOrg()
   const { data: shiftCodesRaw } = useCollection(COL.SHIFT_CODES)
+  const { data: employeesRaw }  = useCollection(COL.EMPLOYEES)
   const shiftCodes = useMemo(
     () => shiftCodesRaw.filter(s => s.orgId === activeOrgId),
     [shiftCodesRaw, activeOrgId]
   )
+  const employees = useMemo(
+    () => employeesRaw.filter(e => e.orgId === activeOrgId && e.status === 'active'),
+    [employeesRaw, activeOrgId]
+  )
 
   // ─── 計費模式 ─────────────────────────────────────────────────────────────
   const [billingMode, setBillingMode] = useState(site.billingMode || 'fixed')
+
+  // ─── 案場指派員工（weekly：固定 1~多位；dispatch：機動團隊） ─────────────
+  const [assignedEmployeeIds, setAssignedEmployeeIds] = useState(site.assignedEmployeeIds || [])
+  const toggleAssignedEmployee = (id) =>
+    setAssignedEmployeeIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   // ─── 月固定明細 ──（用於 fixed / actual）──────────────────────────────────
   // 沿用舊資料：若沒有 monthlyItems 但有 monthlyBase，先把它放成單行「月固定」
@@ -1231,6 +1333,10 @@ function EditSiteModal({ site, onSave, onClose }) {
       await onSave({
         ...site,
         billingMode,
+        // 案場指派員工（weekly / dispatch 用，fixed/actual 留空也無妨）
+        assignedEmployeeIds: (billingMode === 'weekly' || billingMode === 'dispatch')
+          ? assignedEmployeeIds
+          : (site.assignedEmployeeIds || []),
         // fixed/actual fields
         monthlyItems: (billingMode === 'fixed' || billingMode === 'actual') ? monthlyItems : [],
         monthlyBase:  finalMonthlyBase,
@@ -1427,6 +1533,38 @@ function EditSiteModal({ site, onSave, onClose }) {
                 <button type="button" className="btn-secondary text-sm" onClick={addLocation} disabled={!newLocation.trim()}>加入</button>
               </div>
             </div>
+
+            {/* 指派機動團隊 */}
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2">指派機動團隊（誰可被派去這個案場）</p>
+              {employees.length === 0 && (
+                <p className="text-xs text-gray-400">尚無員工資料</p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {employees.map(e => {
+                  const picked = assignedEmployeeIds.includes(e.id)
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => toggleAssignedEmployee(e.id)}
+                      className={clsx(
+                        'px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
+                        picked
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                      )}
+                    >
+                      {e.name}
+                      {e.workMode === 'mobile' && <span className="ml-1 text-[10px] opacity-70">機動</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              {assignedEmployeeIds.length > 0 && (
+                <p className="text-[10px] text-gray-400 mt-1.5">已指派 {assignedEmployeeIds.length} 位</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -1480,6 +1618,37 @@ function EditSiteModal({ site, onSave, onClose }) {
               年度合計：{weeklySchedule.weeks || 52} 週 × {weeklySchedule.timesPerWeek || 0} 次 × ${(weeklySchedule.unitPrice || 0).toLocaleString()} =
               <span className="font-bold ml-1">${getWeeklyAnnualTotal(weeklySchedule).toLocaleString()}</span>
             </p>
+
+            {/* 指派固定員工 */}
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2">指派固定負責員工（每次訪視預設由這些員工執行）</p>
+              {employees.length === 0 && (
+                <p className="text-xs text-gray-400">尚無員工資料</p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {employees.map(e => {
+                  const picked = assignedEmployeeIds.includes(e.id)
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => toggleAssignedEmployee(e.id)}
+                      className={clsx(
+                        'px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
+                        picked
+                          ? 'bg-brand-600 text-white border-brand-600'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                      )}
+                    >
+                      {e.name}
+                    </button>
+                  )
+                })}
+              </div>
+              {assignedEmployeeIds.length > 0 && (
+                <p className="text-[10px] text-gray-400 mt-1.5">已指派 {assignedEmployeeIds.length} 位</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -1800,10 +1969,15 @@ function EditSiteModal({ site, onSave, onClose }) {
 function SiteSection({ site, onEdit }) {
   const { activeOrgId } = useOrg()
   const { data: shiftCodesRaw } = useCollection(COL.SHIFT_CODES)
+  const { data: employeesRaw }  = useCollection(COL.EMPLOYEES)
   const shiftCodes = useMemo(
     () => shiftCodesRaw.filter(s => s.orgId === activeOrgId),
     [shiftCodesRaw, activeOrgId]
   )
+  const assignedEmployees = useMemo(() => {
+    const ids = site.assignedEmployeeIds || []
+    return ids.map(id => employeesRaw.find(e => e.id === id)).filter(Boolean)
+  }, [employeesRaw, site.assignedEmployeeIds])
   const [isExpanded, setExpanded] = useState(true)
   const currentMonth = new Date().getMonth() + 1
   const billingMode  = site.billingMode || 'fixed'
@@ -1917,6 +2091,18 @@ function SiteSection({ site, onEdit }) {
                   </div>
                 </div>
               )}
+              {assignedEmployees.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-[11px] text-gray-500 mb-1">機動團隊（{assignedEmployees.length}）</p>
+                  <div className="flex flex-wrap gap-1">
+                    {assignedEmployees.map(e => (
+                      <span key={e.id} className="badge bg-brand-100 text-brand-700 text-[10px]">
+                        <Users size={9} className="inline-block mr-0.5 -mt-0.5" />{e.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1942,6 +2128,18 @@ function SiteSection({ site, onEdit }) {
                   {site.weeklySchedule.weeks || 52} 週 =
                   <span className="font-bold text-brand-700 ml-1">${getWeeklyAnnualTotal(site.weeklySchedule).toLocaleString()}</span>
                 </p>
+                {assignedEmployees.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <p className="text-[11px] text-gray-500 mb-1">指派員工</p>
+                    <div className="flex flex-wrap gap-1">
+                      {assignedEmployees.map(e => (
+                        <span key={e.id} className="badge bg-brand-100 text-brand-700 text-[10px]">
+                          <Users size={9} className="inline-block mr-0.5 -mt-0.5" />{e.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
