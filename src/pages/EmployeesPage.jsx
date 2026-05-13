@@ -399,9 +399,13 @@ function DetailModal({ emp, onClose, onEdit }) {
               {[
                 { label: '身分證號',   value: emp.idNumber    },
                 { label: '到職日',     value: emp.joinDate    },
-                { label: '月薪',       value: `$${emp.monthlySalary.toLocaleString()}` },
-                emp.baseSalary ? { label: '本薪', value: `$${Number(emp.baseSalary).toLocaleString()}` } : null,
-                { label: '特休餘額',   value: `${emp.leaveBalance} 天` },
+                emp.baseSalary   ? { label: '本薪',     value: `$${Number(emp.baseSalary).toLocaleString()}` }   : null,
+                emp.jobAllowance ? { label: '職務加給', value: `$${Number(emp.jobAllowance).toLocaleString()}` } : null,
+                emp.monthlySalary || emp.dailyRate
+                  ? { label: emp.payType === 'daily' ? '日薪' : '月薪',
+                      value: `$${Number(emp.monthlySalary || emp.dailyRate || 0).toLocaleString()}` }
+                  : null,
+                { label: '特休餘額',   value: `${emp.leaveBalance || 0} 天` },
               ].filter(Boolean).map(({ label, value }) => (
                 <div key={label} className="bg-gray-50 rounded-xl px-3 py-2.5">
                   <p className="text-xs text-gray-400 mb-0.5">{label}</p>
@@ -748,8 +752,8 @@ function AddModal({ onClose, allSites }) {
     name: '', orgId: 'jiaxiang', empTypeKey: 'fulltime-stationed',
     phone: '', email: '', idNumber: '',
     joinDate: new Date().toISOString().slice(0, 10),
-    salary: '', stationedSite: '',
-    baseSalary: '',
+    dailyRate: '', stationedSite: '',
+    baseSalary: '', jobAllowance: '',  // 月薪 = 本薪 + 加給（自動算）
     insuredLabor: true, insuredHealth: true,
     isPartTime: false, hasReceivedPension: false,
     dependentCount: 0,
@@ -765,6 +769,9 @@ function AddModal({ onClose, allSites }) {
   const isStationed = empType.workMode === 'stationed'
   const isOffice    = empType.workMode === 'office'
   const isDaily     = empType.payType === 'daily'
+
+  // 月薪 = 本薪 + 加給（自動計算）
+  const computedMonthlySalary = (Number(form.baseSalary) || 0) + (Number(form.jobAllowance) || 0)
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr('請填寫姓名'); return }
@@ -787,9 +794,10 @@ function AddModal({ onClose, allSites }) {
         payType:        empType.payType,
         employmentType: empType.employmentType,
         stationedSite:  isStationed ? form.stationedSite : '',
-        monthlySalary:  isMonthly ? Number(form.salary) || 0 : 0,
-        dailyRate:      !isMonthly && !isOffice ? Number(form.salary) || 0 : 0,
-        baseSalary:     Number(form.baseSalary) || 0,
+        monthlySalary:  isMonthly ? computedMonthlySalary : 0,
+        dailyRate:      isDaily ? (Number(form.dailyRate) || 0) : 0,
+        baseSalary:     isMonthly ? (Number(form.baseSalary)   || 0) : 0,
+        jobAllowance:   isMonthly ? (Number(form.jobAllowance) || 0) : 0,
         ...insuranceFields,
         bankCode:               form.bankCode.trim(),
         bankAccount:            form.bankAccount.trim(),
@@ -860,25 +868,6 @@ function AddModal({ onClose, allSites }) {
             </div>
           </div>
 
-          {/* 薪資（內勤不顯示） */}
-          {!isOffice && (
-            <div>
-              <label className="label">{isMonthly ? '月薪（元）' : '日薪（元）'}</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                <input
-                  className="input pl-7" type="number" min="0"
-                  placeholder={isMonthly ? '30000' : '1200'}
-                  value={form.salary}
-                  onChange={e => set('salary', e.target.value)}
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
-                  {isMonthly ? '/ 月' : '/ 天'}
-                </span>
-              </div>
-            </div>
-          )}
-
           {/* 主要駐點案場（僅駐點類型顯示） */}
           {isStationed && (
             <div>
@@ -892,18 +881,60 @@ function AddModal({ onClose, allSites }) {
             </div>
           )}
 
-          {/* 本薪（僅非內勤） */}
-          {!isOffice && (
+          {/* 月薪結構：本薪 + 加給 → 月薪（自動）*/}
+          {isMonthly && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-3 border border-gray-200">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">薪資結構</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">本薪（元） *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      className="input pl-7" type="number" min="0"
+                      placeholder="28590"
+                      value={form.baseSalary}
+                      onChange={e => set('baseSalary', e.target.value)}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">勞健保/勞退/加班費基準</p>
+                </div>
+                <div>
+                  <label className="label">職務加給（元）</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      className="input pl-7" type="number" min="0"
+                      placeholder="0"
+                      value={form.jobAllowance}
+                      onChange={e => set('jobAllowance', e.target.value)}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">職務獎金、補貼等</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-200">
+                <span className="text-xs font-semibold text-gray-500">月薪（自動計算）</span>
+                <span className="text-base font-bold text-brand-700">
+                  ${computedMonthlySalary.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* 日薪 */}
+          {isDaily && (
             <div>
-              <label className="label">本薪（元）</label>
+              <label className="label">日薪（元） *</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                 <input
                   className="input pl-7" type="number" min="0"
-                  placeholder="28000"
-                  value={form.baseSalary}
-                  onChange={e => set('baseSalary', e.target.value)}
+                  placeholder="1200"
+                  value={form.dailyRate}
+                  onChange={e => set('dailyRate', e.target.value)}
                 />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">/ 天</span>
               </div>
             </div>
           )}
@@ -949,6 +980,12 @@ function EditModal({ emp, onClose, allSites }) {
     t.employmentType === emp.employmentType
   )?.key || 'fulltime-stationed'
 
+  // 從舊資料推算職務加給：若沒存 jobAllowance，但有 monthlySalary 和 baseSalary，差額即為加給
+  const initBaseSalary   = Number(emp.baseSalary)   || 0
+  const initJobAllowance = emp.jobAllowance != null
+    ? Number(emp.jobAllowance) || 0
+    : Math.max(0, (Number(emp.monthlySalary) || 0) - initBaseSalary)
+
   const [form, setForm] = useState({
     name:             emp.name        || '',
     orgId:            emp.orgId       || 'jiaxiang',
@@ -958,14 +995,15 @@ function EditModal({ emp, onClose, allSites }) {
     address:          emp.address     || '',
     idNumber:         emp.idNumber    || '',
     joinDate:         emp.joinDate    || '',
-    salary:           String(emp.monthlySalary || emp.dailyRate || ''),
+    dailyRate:        String(emp.dailyRate || ''),
     stationedSite:    emp.stationedSite || '',
     status:           emp.status      || 'active',
     leaveBalance:     String(emp.leaveBalance ?? ''),
     emergencyContact: emp.emergencyContact || '',
     note:             emp.note        || '',
     skills:           (emp.skills || []).join('、'),
-    baseSalary:       String(emp.baseSalary || ''),
+    baseSalary:       String(initBaseSalary || ''),
+    jobAllowance:     String(initJobAllowance || ''),
     insuredLabor:        emp.insuredLabor  ?? true,
     insuredHealth:       emp.insuredHealth ?? true,
     isPartTime:          emp.isPartTime ?? false,
@@ -985,6 +1023,9 @@ function EditModal({ emp, onClose, allSites }) {
   const isStationed = empType.workMode === 'stationed'
   const isOffice    = empType.workMode === 'office'
   const isDaily     = empType.payType === 'daily'
+
+  // 月薪 = 本薪 + 加給（自動計算）
+  const computedMonthlySalary = (Number(form.baseSalary) || 0) + (Number(form.jobAllowance) || 0)
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr('請填寫姓名'); return }
@@ -1007,9 +1048,10 @@ function EditModal({ emp, onClose, allSites }) {
         payType:        empType.payType,
         employmentType: empType.employmentType,
         stationedSite:  isStationed ? form.stationedSite : '',
-        monthlySalary:  isMonthly ? Number(form.salary) || 0 : 0,
-        dailyRate:      !isMonthly && !isOffice ? Number(form.salary) || 0 : 0,
-        baseSalary:     Number(form.baseSalary) || 0,
+        monthlySalary:  isMonthly ? computedMonthlySalary : 0,
+        dailyRate:      isDaily ? (Number(form.dailyRate) || 0) : 0,
+        baseSalary:     isMonthly ? (Number(form.baseSalary)   || 0) : 0,
+        jobAllowance:   isMonthly ? (Number(form.jobAllowance) || 0) : 0,
         ...insuranceFields,
         bankCode:               form.bankCode.trim(),
         bankAccount:            form.bankAccount.trim(),
@@ -1101,20 +1143,6 @@ function EditModal({ emp, onClose, allSites }) {
             <input className="input" value={form.address} onChange={e => set('address', e.target.value)} />
           </div>
 
-          {!isOffice && (
-            <div>
-              <label className="label">{isMonthly ? '月薪（元）' : '日薪（元）'}</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                <input
-                  className="input pl-7" type="number" min="0"
-                  value={form.salary}
-                  onChange={e => set('salary', e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
           {isStationed && (
             <div>
               <label className="label">主要駐點案場</label>
@@ -1127,18 +1155,59 @@ function EditModal({ emp, onClose, allSites }) {
             </div>
           )}
 
-          {/* 本薪（僅非內勤） */}
-          {!isOffice && (
+          {/* 月薪結構：本薪 + 加給 → 月薪（自動）*/}
+          {isMonthly && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-3 border border-gray-200">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">薪資結構</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">本薪（元） *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      className="input pl-7" type="number" min="0"
+                      placeholder="28590"
+                      value={form.baseSalary}
+                      onChange={e => set('baseSalary', e.target.value)}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">勞健保/勞退/加班費基準</p>
+                </div>
+                <div>
+                  <label className="label">職務加給（元）</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      className="input pl-7" type="number" min="0"
+                      placeholder="0"
+                      value={form.jobAllowance}
+                      onChange={e => set('jobAllowance', e.target.value)}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">職務獎金、補貼等</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-200">
+                <span className="text-xs font-semibold text-gray-500">月薪（自動計算）</span>
+                <span className="text-base font-bold text-brand-700">
+                  ${computedMonthlySalary.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* 日薪 */}
+          {isDaily && (
             <div>
-              <label className="label">本薪（元）</label>
+              <label className="label">日薪（元） *</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                 <input
                   className="input pl-7" type="number" min="0"
-                  placeholder="28000"
-                  value={form.baseSalary}
-                  onChange={e => set('baseSalary', e.target.value)}
+                  value={form.dailyRate}
+                  onChange={e => set('dailyRate', e.target.value)}
                 />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">/ 天</span>
               </div>
             </div>
           )}

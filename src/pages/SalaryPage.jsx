@@ -179,11 +179,18 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
       leftMidMonth,
     })
 
+    // 同步本薪與職務加給（兼容舊資料：用 monthlySalary - baseSalary 推算加給）
+    const empBase = Number(employee.baseSalary) || 0
+    const empAllowance = employee.jobAllowance != null
+      ? Number(employee.jobAllowance) || 0
+      : Math.max(0, (Number(employee.monthlySalary) || 0) - empBase)
+
     const synced = {
       ...record,
-      baseSalary:        employee.baseSalary            || record.baseSalary,
-      laborInsBracket:   recalc.laborBracket   || record.laborInsBracket,
-      healthInsBracket:  recalc.healthBracket  || record.healthInsBracket,
+      baseSalary:        empBase                || record.baseSalary,
+      allowance:         empAllowance           || record.allowance,
+      laborInsBracket:   recalc.laborBracket    || record.laborInsBracket,
+      healthInsBracket:  recalc.healthBracket   || record.healthInsBracket,
       laborInsEmployee:  recalc.laborEmployee,
       laborInsEmployer:  recalc.laborEmployerTotal,
       healthInsEmployee: recalc.healthEmployee,
@@ -694,12 +701,18 @@ export default function SalaryPage() {
     for (const emp of employees.filter(e => e.status === 'active' || !e.status)) {
       const exists = salaryRecords.some(r => r.month === month && r.employeeId === emp.id)
       if (exists) continue
+      // 兼容舊資料：若無 jobAllowance 但有 monthlySalary 與 baseSalary，差額視為加給
+      const empBase = Number(emp.baseSalary) || 0
+      const empAllowance = emp.jobAllowance != null
+        ? Number(emp.jobAllowance) || 0
+        : Math.max(0, (Number(emp.monthlySalary) || 0) - empBase)
       await addSalaryRecord({
         orgId: activeOrgId, employeeId: emp.id, month, status: 'pending',
         paymentMethod: 'bank', workDays: daysInMonth, totalDaysInMonth: daysInMonth,
         insuredDays: 30, leftMidMonth: false,
-        baseSalary:       emp.baseSalary       || emp.monthlySalary || 0,
-        allowance: 0, overtimePay: 0,
+        baseSalary:       empBase || emp.monthlySalary || 0,
+        allowance:        empAllowance,
+        overtimePay: 0,
         yearEndBonus: 0, lunarBonus: 0, paidLeave: 0, advancePayment: 0, mobile: [],
         // 從員工資料帶入保險 / 勞退
         laborInsBracket:   emp.laborInsuredSalary      || 0,
