@@ -676,14 +676,16 @@ export default function SalaryPage() {
   const { data: employeesRaw }       = useCollection(COL.EMPLOYEES)
   const { data: salaryRecordsRaw }   = useCollection(COL.SALARY_RECORDS)
 
-  const employees     = useMemo(() => employeesRaw.filter(e => e.orgId === activeOrgId),     [employeesRaw,     activeOrgId])
-  const salaryRecords = useMemo(() => salaryRecordsRaw.filter(r => r.orgId === activeOrgId), [salaryRecordsRaw, activeOrgId])
+  // 薪資頁採跨組織檢視（會計通常需同時看佳翔+哲欣、做合併報表）
+  // 不依 activeOrgId 過濾資料，改用 filterOrg tab 控制
+  const employees     = employeesRaw
+  const salaryRecords = salaryRecordsRaw
 
   const [month, setMonth]         = useState(() => {
     const n = new Date()
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
   })
-  const [filterOrg, setOrg]       = useState('all')
+  const [filterOrg, setOrg]       = useState(activeOrgId)  // 進來預設與 sidebar 一致，可切到「全部」或另一家
   const [filterStatus, setStatus] = useState('all')
   const [selected, setSelected]   = useState(null)
   const [generating, setGenerating] = useState(false)
@@ -698,7 +700,11 @@ export default function SalaryPage() {
     setGenerating(true)
     const [y, m] = month.split('-').map(Number)
     const daysInMonth = new Date(y, m, 0).getDate()
-    for (const emp of employees.filter(e => e.status === 'active' || !e.status)) {
+    // 依 filterOrg 決定要為哪些員工產生薪資單（'all' 一次處理兩家）
+    const targetEmps = employees
+      .filter(e => e.status === 'active' || !e.status)
+      .filter(e => filterOrg === 'all' || e.orgId === filterOrg)
+    for (const emp of targetEmps) {
       const exists = salaryRecords.some(r => r.month === month && r.employeeId === emp.id)
       if (exists) continue
       // 兼容舊資料：若無 jobAllowance 但有 monthlySalary 與 baseSalary，差額視為加給
@@ -707,7 +713,8 @@ export default function SalaryPage() {
         ? Number(emp.jobAllowance) || 0
         : Math.max(0, (Number(emp.monthlySalary) || 0) - empBase)
       await addSalaryRecord({
-        orgId: activeOrgId, employeeId: emp.id, month, status: 'pending',
+        orgId: emp.orgId,  // 用員工自己的 orgId，不再硬綁 activeOrgId
+        employeeId: emp.id, month, status: 'pending',
         paymentMethod: 'bank', workDays: daysInMonth, totalDaysInMonth: daysInMonth,
         insuredDays: 30, leftMidMonth: false,
         baseSalary:       empBase || emp.monthlySalary || 0,
@@ -783,11 +790,11 @@ export default function SalaryPage() {
     return groups
   }, [filteredRows])
 
-  // Stats
-  const totalGross        = allRows.reduce((s, { record, employee }) => s + calcSalary(record, employee).gross, 0)
-  const totalNet          = allRows.reduce((s, { record, employee }) => s + calcSalary(record, employee).net, 0)
-  const totalEmployerCost = allRows.reduce((s, { record, employee }) => s + calcSalary(record, employee).totalEmployerCosts, 0)
-  const pendingCnt        = allRows.filter(({ record }) => record.status === 'pending').length
+  // Stats（跟著 filter 走 — 切到佳翔就看佳翔總額，切到全部看兩家加總）
+  const totalGross        = filteredRows.reduce((s, { record, employee }) => s + calcSalary(record, employee).gross, 0)
+  const totalNet          = filteredRows.reduce((s, { record, employee }) => s + calcSalary(record, employee).net, 0)
+  const totalEmployerCost = filteredRows.reduce((s, { record, employee }) => s + calcSalary(record, employee).totalEmployerCosts, 0)
+  const pendingCnt        = filteredRows.filter(({ record }) => record.status === 'pending').length
 
   const exportCSV = () => {
     const header = '姓名,公司,職稱,出勤天數,本薪,加給,加班費,年終,特休,代付款,機動,勞保自負,健保自負,勞退自提,請假,其他,借支,應發,扣除,實領,給薪方式,狀態\n'
