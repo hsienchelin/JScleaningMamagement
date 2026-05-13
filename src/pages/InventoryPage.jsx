@@ -8,7 +8,7 @@ import {
   COL,
   addSupplier, updateSupplier, deleteSupplier,
   addInventoryItem, updateInventoryItem, deleteInventoryItem,
-  addPurchase,
+  addPurchase, deletePurchase,
 } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
@@ -180,6 +180,18 @@ function PurchaseCard({ purchase }) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <p className="font-bold text-gray-900">${(purchase.totalAmount || 0).toLocaleString()}</p>
+          <button
+            onClick={async (e) => {
+              e.stopPropagation()
+              if (!confirm(`確定刪除 ${purchase.date} 向「${purchase.supplierName}」的進貨單？金額 $${(purchase.totalAmount || 0).toLocaleString()}`)) return
+              try { await deletePurchase(purchase.id) }
+              catch (err) { alert('刪除失敗：' + (err.message || '請稍後再試')) }
+            }}
+            className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+            title="刪除進貨單"
+          >
+            <Trash2 size={14} />
+          </button>
           {expanded
             ? <ChevronDown size={14} className="text-gray-400" />
             : <ChevronRight size={14} className="text-gray-400" />

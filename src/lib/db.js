@@ -82,6 +82,10 @@ export async function updateCustomer(id, data) {
   })
 }
 
+export async function deleteCustomer(id) {
+  await deleteDoc(doc(db, COL.CUSTOMERS, id))
+}
+
 // ─── 訂單 ──────────────────────────────────────────────────────────────────────
 export async function addOrder(data) {
   return addDoc(collection(db, COL.ORDERS), {
@@ -97,6 +101,10 @@ export async function updateOrder(id, data) {
   })
 }
 
+export async function deleteOrder(id) {
+  await deleteDoc(doc(db, COL.ORDERS, id))
+}
+
 // ─── 年度合約 ──────────────────────────────────────────────────────────────────
 export async function addAnnualContract(data) {
   return addDoc(collection(db, COL.ANNUAL_CONTRACTS), {
@@ -110,6 +118,10 @@ export async function updateAnnualContract(id, data) {
     ...data,
     updatedAt: serverTimestamp(),
   })
+}
+
+export async function deleteAnnualContract(id) {
+  await deleteDoc(doc(db, COL.ANNUAL_CONTRACTS, id))
 }
 
 // ─── 排班 ──────────────────────────────────────────────────────────────────────
@@ -146,6 +158,10 @@ export async function addPurchase(data) {
     ...data,
     createdAt: serverTimestamp(),
   })
+}
+
+export async function deletePurchase(id) {
+  await deleteDoc(doc(db, COL.PURCHASES, id))
 }
 
 // ─── 品項字典 ──────────────────────────────────────────────────────────────────
@@ -209,6 +225,10 @@ export async function addWorkOrder(data) {
 
 export async function updateWorkOrder(id, data) {
   await updateDoc(doc(db, COL.WORK_ORDERS, id), { ...data, updatedAt: serverTimestamp() })
+}
+
+export async function deleteWorkOrder(id) {
+  await deleteDoc(doc(db, COL.WORK_ORDERS, id))
 }
 
 // ─── 請款單（應收帳款）────────────────────────────────────────────────────────

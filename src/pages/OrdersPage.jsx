@@ -7,7 +7,7 @@ import {
 import {
   DIFFICULTY_COEFFICIENTS, COST_ENGINE,
 } from '../lib/mockData'
-import { COL, addOrder, updateOrder, addAnnualContract, updateCustomer, updateAnnualContract, addInvoice, addScheduleInstance } from '../lib/db'
+import { COL, addOrder, updateOrder, deleteOrder, addAnnualContract, updateCustomer, updateAnnualContract, deleteAnnualContract, addInvoice, addScheduleInstance } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
 import clsx from 'clsx'
@@ -469,11 +469,28 @@ function OrderEditModal({ order, customers, onSave, onClose }) {
           </div>
           {err && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
         </div>
-        <div className="flex justify-end gap-3 mt-6">
-          <button className="btn-secondary" onClick={onClose}>取消</button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? '儲存中...' : '儲存變更'}
+        <div className="flex items-center justify-between gap-3 mt-6">
+          <button
+            className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
+            onClick={async () => {
+              if (!confirm(`確定刪除訂單「${order.title || order.siteName || ''}」？\n\n相關工務請款單與請款資料不會自動刪除。`)) return
+              try {
+                await deleteOrder(order.id)
+                onClose()
+              } catch (e) {
+                setErr('刪除失敗：' + (e.message || '請稍後再試'))
+              }
+            }}
+            disabled={saving}
+          >
+            🗑 刪除訂單
           </button>
+          <div className="flex gap-3">
+            <button className="btn-secondary" onClick={onClose}>取消</button>
+            <button className="btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? '儲存中...' : '儲存變更'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2767,6 +2784,16 @@ function ContractDetail({ contract, onBack }) {
     { key: 'cost',    label: '成本分析',   icon: DollarSign },
   ]
 
+  const handleDeleteContract = async () => {
+    if (!confirm(`確定刪除合約「${contract.title}」？\n\n此合約所有的案場、週期任務、訪視紀錄、派工紀錄都會一併刪除（無法復原）。\n相關工務請款單仍會保留但找不到合約。`)) return
+    try {
+      await deleteAnnualContract(contract.id)
+      onBack()
+    } catch (e) {
+      alert('刪除失敗：' + (e.message || '請稍後再試'))
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -2794,6 +2821,13 @@ function ContractDetail({ contract, onBack }) {
             )}
           </div>
         </div>
+        <button
+          onClick={handleDeleteContract}
+          className="shrink-0 mt-0.5 text-sm text-red-600 hover:text-red-700 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+          title="刪除合約"
+        >
+          🗑 刪除
+        </button>
       </div>
 
       {/* Stat cards */}

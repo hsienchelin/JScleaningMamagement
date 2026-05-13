@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { useOrg } from '../contexts/OrgContext'
 import { MOCK_EMPLOYEES, MOCK_INVENTORY_ITEMS, PRESET_TASKS, ORGS } from '../lib/mockData'
-import { COL, addWorkOrder, updateWorkOrder, updateOrder, updateAnnualContract } from '../lib/db'
+import { COL, addWorkOrder, updateWorkOrder, deleteWorkOrder, updateOrder, updateAnnualContract } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { getTaskScheduleText } from '../utils/contractSchema'
 import clsx from 'clsx'
@@ -87,7 +87,7 @@ function Section({ icon: Icon, title, badge, children, defaultOpen = true }) {
 }
 
 // ─── Report list card ─────────────────────────────────────────────────────────
-function ReportCard({ report, onClick }) {
+function ReportCard({ report, onClick, onDelete }) {
   const sc       = STATUS[report.status] || STATUS.draft
   const org      = ORGS.find(o => o.id === report.orgId)
   const sessions = report.sessions || []
@@ -97,9 +97,11 @@ function ReportCard({ report, onClick }) {
   const dateRange = dates.length === 0 ? '未設定'
     : dates.length === 1 ? dates[0]
     : `${dates[0]} ~ ${dates[dates.length - 1]}`
+  // 只有草稿可以從列表直接刪
+  const canDelete = report.status === 'draft'
 
   return (
-    <div className="card p-4 cursor-pointer hover:shadow-md transition-shadow" onClick={onClick}>
+    <div className="card p-4 cursor-pointer hover:shadow-md transition-shadow relative" onClick={onClick}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
@@ -115,6 +117,15 @@ function ReportCard({ report, onClick }) {
             <Crown size={10} /> 帶班：{report.leaderName || '未指定'}
           </p>
         </div>
+        {canDelete && (
+          <button
+            onClick={e => { e.stopPropagation(); onDelete?.(report) }}
+            className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors shrink-0"
+            title="刪除草稿"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-2 text-center mb-2">
         <div>
@@ -920,10 +931,11 @@ function ReportForm({ report: init, onSave, onCancel, employees = [], inventoryI
 }
 
 // ─── Detail view ──────────────────────────────────────────────────────────────
-function ReportDetail({ report, onBack, onEdit, onApprove }) {
+function ReportDetail({ report, onBack, onEdit, onApprove, onDelete }) {
   const sc       = STATUS[report.status] || STATUS.draft
   const org      = ORGS.find(o => o.id === report.orgId)
   const sessions = report.sessions || []
+  const canDelete = report.status === 'draft'
 
   return (
     <div className="max-w-3xl mx-auto space-y-4 pb-8">
@@ -938,6 +950,14 @@ function ReportDetail({ report, onBack, onEdit, onApprove }) {
           </div>
           <p className="text-xs text-gray-400">帶班組長：{report.leaderName || '未指定'}</p>
         </div>
+        {canDelete && (
+          <button
+            className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
+            onClick={() => onDelete?.(report)}
+          >
+            <Trash2 size={14} className="inline-block -mt-0.5 mr-1" /> 刪除草稿
+          </button>
+        )}
         <button className="btn-secondary" onClick={onEdit}><Pencil size={15} /> 編輯</button>
       </div>
 
@@ -1244,7 +1264,19 @@ export default function DailyReportPage() {
   const liveReport = reports.find(r => r.id === current?.id) || current
 
   if (view === 'form')   return <ReportForm   report={current} onSave={saveReport} onCancel={() => setView('list')} employees={employees} inventoryItems={inventoryItems} orders={orders} annualContracts={annualContracts} customCleaningTasks={customCleaningTasks} />
-  if (view === 'detail') return <ReportDetail report={liveReport} onBack={() => setView('list')} onEdit={() => openEdit(liveReport)} onApprove={approveReport} />
+  if (view === 'detail') return (
+    <ReportDetail
+      report={liveReport}
+      onBack={() => setView('list')}
+      onEdit={() => openEdit(liveReport)}
+      onApprove={approveReport}
+      onDelete={async (rep) => {
+        if (!confirm(`確定刪除草稿「${rep.siteName || rep.orderName || '未設定案場'}」？`)) return
+        try { await deleteWorkOrder(rep.id); setView('list') }
+        catch (e) { alert('刪除失敗：' + (e.message || '請稍後再試')) }
+      }}
+    />
+  )
 
   // ── List view ──────────────────────────────────────────────────────────────
   return (
@@ -1301,7 +1333,16 @@ export default function DailyReportPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map(r => (
-            <ReportCard key={r.id} report={r} onClick={() => openDetail(r)} />
+            <ReportCard
+              key={r.id}
+              report={r}
+              onClick={() => openDetail(r)}
+              onDelete={async (rep) => {
+                if (!confirm(`確定刪除草稿「${rep.siteName || rep.orderName || '未設定案場'}」？`)) return
+                try { await deleteWorkOrder(rep.id) }
+                catch (e) { alert('刪除失敗：' + (e.message || '請稍後再試')) }
+              }}
+            />
           ))}
         </div>
       )}

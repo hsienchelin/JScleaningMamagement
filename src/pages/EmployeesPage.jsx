@@ -6,7 +6,7 @@ import {
   Clock, UserX, Filter, KeyRound, UserCheck, Loader2,
 } from 'lucide-react'
 import { ORGS } from '../lib/mockData'
-import { COL, addEmployee, updateEmployee } from '../lib/db'
+import { COL, addEmployee, updateEmployee, deleteEmployee } from '../lib/db'
 import { useCollection, useDoc } from '../hooks/useCollection'
 import { functions } from '../lib/firebase'
 import { httpsCallable } from 'firebase/functions'
@@ -1179,11 +1179,28 @@ function EditModal({ emp, onClose, allSites }) {
           {err && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
-          <button className="btn-secondary" onClick={onClose} disabled={saving}>取消</button>
-          <button className="btn-primary" onClick={handleSave} disabled={saving || !form.name.trim()}>
-            {saving ? '儲存中...' : '儲存變更'}
+        <div className="flex items-center justify-between gap-3 mt-6">
+          <button
+            className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
+            onClick={async () => {
+              if (!confirm(`確定刪除員工「${emp.name}」？\n\n此操作無法復原。歷史薪資/工務請款單仍會保留員工姓名，但無法再連結到此員工。`)) return
+              try {
+                await deleteEmployee(emp.id)
+                onClose()
+              } catch (e) {
+                setErr('刪除失敗：' + (e.message || '請稍後再試'))
+              }
+            }}
+            disabled={saving}
+          >
+            🗑 刪除員工
           </button>
+          <div className="flex gap-3">
+            <button className="btn-secondary" onClick={onClose} disabled={saving}>取消</button>
+            <button className="btn-primary" onClick={handleSave} disabled={saving || !form.name.trim()}>
+              {saving ? '儲存中...' : '儲存變更'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

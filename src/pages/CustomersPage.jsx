@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Plus, Search, MapPin, Phone, Mail, ChevronDown, ChevronRight, Landmark, Building2, Users, RefreshCcw, Pen, Clock, X, Pencil } from 'lucide-react'
-import { COL, addCustomer, updateCustomer } from '../lib/db'
+import { COL, addCustomer, updateCustomer, deleteCustomer } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
 import clsx from 'clsx'
@@ -516,11 +516,34 @@ export default function CustomersPage() {
               </div>
               {err && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
             </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button className="btn-secondary" onClick={closeEdit} disabled={saving}>取消</button>
-              <button className="btn-primary" onClick={handleUpdate} disabled={saving || !form.name.trim()}>
-                {saving ? '儲存中...' : '儲存變更'}
+            <div className="flex items-center justify-between gap-3 mt-6">
+              <button
+                className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                onClick={async () => {
+                  const sites  = sitesByCustomer[editing.id]  || []
+                  const orders_ = ordersByCustomer[editing.id] || []
+                  if (sites.length > 0 || orders_.length > 0) {
+                    if (!confirm(`「${editing.name}」目前有 ${sites.length} 個案場、${orders_.length} 個案件未結案，仍要刪除嗎？\n\n建議：先把相關合約/訂單狀態改成「已結束/完成」。\n刪除後合約/訂單會保留但找不到客戶。`)) return
+                  } else {
+                    if (!confirm(`確定刪除客戶「${editing.name}」？`)) return
+                  }
+                  try {
+                    await deleteCustomer(editing.id)
+                    closeEdit()
+                  } catch (e) {
+                    setErr('刪除失敗：' + (e.message || '請稍後再試'))
+                  }
+                }}
+                disabled={saving}
+              >
+                🗑 刪除客戶
               </button>
+              <div className="flex gap-3">
+                <button className="btn-secondary" onClick={closeEdit} disabled={saving}>取消</button>
+                <button className="btn-primary" onClick={handleUpdate} disabled={saving || !form.name.trim()}>
+                  {saving ? '儲存中...' : '儲存變更'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
