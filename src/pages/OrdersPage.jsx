@@ -986,6 +986,97 @@ function BillingDraft({ contract, sites = [] }) {
   const grandTotal     = stationedTotal + periodicTotal + weeklyTotal + dispatchTotal
   const taxTotal       = Math.round(grandTotal * 1.05)
 
+  // ── 匯出 CSV（Excel 直接開、含 BOM 不亂碼）─────────────────────────────────
+  const handleExport = () => {
+    const rows = []
+    rows.push(['項目', '單位', '數量', '單價', '複價', '備註'])
+
+    // 常態（月固定）
+    if (stationedTotal > 0) {
+      rows.push(['【常態性駐點清潔】', '', '', '', '', ''])
+      sites.forEach(site => {
+        const mode = site.billingMode || 'fixed'
+        if (mode === 'dispatch' || mode === 'weekly') return
+        const base = getSiteMonthlyBase(site)
+        if (base <= 0) return
+        // 若有 monthlyItems 逐項展開
+        if (Array.isArray(site.monthlyItems) && site.monthlyItems.length > 0) {
+          site.monthlyItems.forEach(item => {
+            rows.push([
+              `${site.name}　${item.name}`, '月', 1,
+              Number(item.amount) || 0, Number(item.amount) || 0, '',
+            ])
+          })
+        } else {
+          rows.push([`${site.name}　全區環境清潔`, '月', 1, base, base, ''])
+        }
+      })
+      rows.push(['', '', '', '', stationedTotal, '常態項目小計'])
+    }
+
+    // 週期任務（已核准）
+    if (periodicCompleted.length > 0) {
+      rows.push(['【週期性重點清潔（本月已核准完成）】', '', '', '', '', ''])
+      periodicCompleted.forEach(t => {
+        rows.push([t.name, '次', 1, t.unitPrice || 0, t.unitPrice || 0, t.siteName])
+      })
+      rows.push(['', '', '', '', periodicTotal, '週期項目小計'])
+    }
+
+    // 每週固定訪視
+    if (weeklyRows.length > 0) {
+      rows.push(['【每週固定訪視（本月已核准）】', '', '', '', '', ''])
+      weeklyRows.forEach(r => {
+        rows.push([`${r.siteName}　週次訪視`, '次', r.count, r.unitPrice, r.subtotal, `${r.count} 次 × $${r.unitPrice.toLocaleString()}`])
+      })
+      rows.push(['', '', '', '', weeklyTotal, '週次訪視小計'])
+    }
+
+    // 按次派工
+    if (dispatchRows.length > 0) {
+      rows.push(['【按次派工（本月已核准）】', '', '', '', '', ''])
+      dispatchRows.forEach(r => {
+        rows.push([`${r.siteName}　${r.itemName}`, '次', r.count, r.unitPrice, r.subtotal, `${r.count} 次 × $${r.unitPrice.toLocaleString()}`])
+      })
+      rows.push(['', '', '', '', dispatchTotal, '按次派工小計'])
+    }
+
+    rows.push(['', '', '', '', '', ''])
+    rows.push(['', '', '', '本月請款合計（未稅）', grandTotal, ''])
+    rows.push(['', '', '', '含稅總計（×1.05）',    taxTotal,   ''])
+
+    // 標頭資訊
+    const meta = [
+      [`${contract.title}`],
+      [`客戶：${contract.customerName || ''}`],
+      [`月份：${monthLabel}份請款`],
+      [`合約期間：${contract.contractStart} ~ ${contract.contractEnd}`],
+      [`付款方式：${contract.paymentMode === 'actual' ? '核實請款' : '平均攤提'}`],
+      [],
+    ]
+
+    // CSV 序列化
+    const escape = (v) => {
+      if (v == null) return ''
+      const s = String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const csv = [...meta, ...rows]
+      .map(r => r.map(escape).join(','))
+      .join('\n')
+
+    // BOM 讓 Excel 識別 UTF-8 中文
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `請款單_${contract.customerName || '客戶'}_${currentYear}-${String(currentMonth).padStart(2, '0')}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -995,7 +1086,7 @@ function BillingDraft({ contract, sites = [] }) {
             僅列入常態項目 + 本月工務已核准完成的週期任務（依工務請款單回填）
           </p>
         </div>
-        <button className="btn-secondary text-sm gap-1.5">
+        <button className="btn-secondary text-sm gap-1.5" onClick={handleExport}>
           <Download size={14} /> 匯出 Excel
         </button>
       </div>
