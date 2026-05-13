@@ -139,7 +139,7 @@ function OrderRow({ order, customers = [], onSelect }) {
               {order.siteName || order.title}
             </span>
             <span className={`badge ${STATUS_BADGE[order.status]}`}>{STATUS_LABEL[order.status]}</span>
-            <span className="badge badge-blue">{cleanType.name}</span>
+            {cleanType.name && <span className="badge badge-blue">{cleanType.name}</span>}
           </div>
           <p className="text-sm text-gray-500 mt-0.5">{customer?.name || order.customerName}</p>
           <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2 text-xs text-gray-500">
@@ -197,7 +197,8 @@ function OrderDetail({ order, customers = [], orgId, workOrders = [], onBack }) 
     { label: '客戶',     value: customer?.name || localOrder.customerName || '—' },
     { label: '案場',     value: localOrder.siteName || '—' },
     { label: '施工地址', value: localOrder.siteAddress || '—' },
-    { label: '清潔類型', value: cleanType.name },
+    // 清潔類型欄位已停用（工務請款單會記錄實際施作項目），舊資料才顯示
+    ...(cleanType.name ? [{ label: '清潔類型', value: cleanType.name }] : []),
     ...(localOrder.contractStart ? [{ label: '合約期間', value: `${localOrder.contractStart} ~ ${localOrder.contractEnd}` }] : []),
     ...(localOrder.notes ? [{ label: '備註', value: localOrder.notes }] : []),
   ]
@@ -337,8 +338,6 @@ function OrderEditModal({ order, customers, onSave, onClose }) {
   const [status,        setStatus]        = useState(order.status        || 'active')
   const [siteName,      setSiteName]      = useState(order.siteName      || '')
   const [siteAddress,   setSiteAddress]   = useState(order.siteAddress   || '')
-  const [typeId,        setTypeId]        = useState(order.type          || 'stationed')
-  const [customType,    setCustomType]    = useState(order.typeCustom    || '')
   const [contractStart, setContractStart] = useState(order.contractStart || '')
   const [contractEnd,   setContractEnd]   = useState(order.contractEnd   || '')
   const [totalPrice,    setTotalPrice]    = useState(String(order.totalPrice || ''))
@@ -347,27 +346,22 @@ function OrderEditModal({ order, customers, onSave, onClose }) {
   const [saving,        setSaving]        = useState(false)
   const [err,           setErr]           = useState('')
 
-  const isOther = typeId === 'other'
-
   const handleSave = async () => {
     setSaving(true); setErr('')
     try {
-      const typeName = isOther
-        ? customType.trim()
-        : (CLEAN_TYPES.find(t => t.id === typeId)?.name || typeId)
+      // 標題改用「客戶 · 案場」（不再帶清潔類型，舊資料的 type 欄位保留不動）
+      const titleParts = [order.customerName, siteName.trim()].filter(Boolean)
       const updated = {
         ...order,
         status,
         siteName:      siteName.trim(),
         siteAddress:   siteAddress.trim(),
-        type:          typeId,
-        typeCustom:    isOther ? customType.trim() : '',
         contractStart,
         contractEnd,
         totalPrice:    Number(totalPrice) || 0,
         taxIncluded,
         notes:         notes.trim(),
-        title:         `${order.customerName} · ${typeName}`,
+        title:         titleParts.join(' · ') || order.customerName || order.title,
       }
       await updateOrder(order.id, updated)
       onSave(updated)
@@ -391,29 +385,6 @@ function OrderEditModal({ order, customers, onSave, onClose }) {
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
-          </div>
-          {/* Clean type */}
-          <div>
-            <label className="label">清潔類型</label>
-            <div className="flex flex-wrap gap-2">
-              {CLEAN_TYPES.map(t => (
-                <button
-                  key={t.id} type="button"
-                  onClick={() => setTypeId(t.id)}
-                  className={clsx(
-                    'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-                    typeId === t.id
-                      ? 'bg-brand-600 text-white border-brand-600'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
-                  )}
-                >
-                  {t.name}
-                </button>
-              ))}
-            </div>
-            {isOther && (
-              <input className="input mt-2" placeholder="請輸入清潔類型..." value={customType} onChange={e => setCustomType(e.target.value)} />
-            )}
           </div>
           {/* Site */}
           <div className="grid grid-cols-2 gap-3">
@@ -3203,8 +3174,6 @@ export default function OrdersPage() {
   const [search,         setSearch]         = useState('')
   const [statusFilter,   setStatus]         = useState('active_only')
   const [contractFilter, setContractFilter] = useState('active')
-  const [typeId,         setTypeId]         = useState('stationed')
-  const [customType,     setCustomType]     = useState('')
   const [customerId,     setCustomerId]     = useState('')
   const [siteId,         setSiteId]         = useState('')
   const [newSiteName,    setNewSiteName]    = useState('')
@@ -3217,9 +3186,6 @@ export default function OrdersPage() {
   const [showEst,        setShowEst]        = useState(false)
   const [saving,         setSaving]         = useState(false)
   const [formErr,        setFormErr]        = useState('')
-
-  const isStationed = typeId === 'stationed'
-  const isOther     = typeId === 'other'
 
   const orgCustomers     = customers.filter(c => c.orgId === activeOrgId)
   const selectedCustomer = orgCustomers.find(c => c.id === customerId)
@@ -3415,8 +3381,6 @@ export default function OrdersPage() {
   const closeForm = () => {
     setShowForm(false)
     setOrderType('oneoff')
-    setTypeId('stationed')
-    setCustomType('')
     setCustomerId('')
     setSiteId('')
     setNewSiteName('')
@@ -3452,20 +3416,19 @@ export default function OrdersPage() {
     setSaving(true)
     setFormErr('')
     try {
-      const typeName = isOther ? customType.trim() : (CLEAN_TYPES.find(t => t.id === typeId)?.name || typeId)
       const siteName = siteId === 'new' ? newSiteName.trim() : (customerSites.find(s => s.id === siteId)?.name || '')
+      // 標題改用「客戶 · 案場」（不再帶清潔類型，工務請款單會記錄實際做的項目）
+      const titleParts = [selectedCustomer?.name, siteName].filter(Boolean)
       await addOrder({
         orgId:         activeOrgId,
-        title:         `${selectedCustomer?.name} · ${typeName}`,
+        title:         titleParts.join(' · ') || selectedCustomer?.name || '單次案件',
         customerId,
         customerName:  selectedCustomer?.name || '',
         siteId:        siteId === 'new' ? null : siteId,
         siteName,
         siteAddress:   siteId === 'new' ? newSiteAddress.trim() : (customerSites.find(s => s.id === siteId)?.address || ''),
-        type:          typeId,
-        typeCustom:    isOther ? customType.trim() : '',
-        contractStart: isStationed ? contractStart : '',
-        contractEnd:   isStationed ? contractEnd : '',
+        contractStart,
+        contractEnd,
         totalPrice:    Number(totalPrice) || 0,
         notes:         notes.trim(),
         status:        'not_started',
@@ -3643,35 +3606,6 @@ export default function OrdersPage() {
             {orderType === 'oneoff' && (<>
             <div className="space-y-4">
 
-              {/* 清潔類型 */}
-              <div>
-                <label className="label">清潔類型 *</label>
-                <div className="flex flex-wrap gap-2">
-                  {CLEAN_TYPES.map(t => (
-                    <button
-                      key={t.id} type="button"
-                      onClick={() => setTypeId(t.id)}
-                      className={clsx(
-                        'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-                        typeId === t.id
-                          ? 'bg-brand-600 text-white border-brand-600'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
-                      )}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-                </div>
-                {isOther && (
-                  <input
-                    className="input mt-2"
-                    placeholder="請輸入清潔類型..."
-                    value={customType}
-                    onChange={e => setCustomType(e.target.value)}
-                  />
-                )}
-              </div>
-
               {/* 客戶 */}
               <div>
                 <label className="label">客戶 *</label>
@@ -3724,19 +3658,17 @@ export default function OrdersPage() {
                 </div>
               )}
 
-              {/* 合約期間（駐點清潔才顯示） */}
-              {isStationed && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">合約開始</label>
-                    <input className="input" type="date" value={contractStart} onChange={e => setContractStart(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="label">合約結束</label>
-                    <input className="input" type="date" value={contractEnd} onChange={e => setContractEnd(e.target.value)} />
-                  </div>
+              {/* 合約期間（選填，跨多日的案件再填）*/}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">合約開始（選填）</label>
+                  <input className="input" type="date" value={contractStart} onChange={e => setContractStart(e.target.value)} />
                 </div>
-              )}
+                <div>
+                  <label className="label">合約結束（選填）</label>
+                  <input className="input" type="date" value={contractEnd} onChange={e => setContractEnd(e.target.value)} />
+                </div>
+              </div>
 
               {/* 訂單總價 */}
               <div>
