@@ -68,6 +68,22 @@ export function getSiteMonthlyBase(site) {
   return Number(site.monthlyBase) || 0
 }
 
+// ─── 合約是否已結束（過期或手動標 ended）──────────────────────────────────────
+// 1. status === 'ended' / 'completed' / 'cancelled' → 已結束
+// 2. contractEnd 早於今天 → 自動視為已結束（即使 status 仍是 active）
+export function isContractEnded(contract) {
+  if (!contract) return false
+  const s = contract.status
+  if (s === 'ended' || s === 'completed' || s === 'cancelled') return true
+  if (contract.contractEnd) {
+    const end   = new Date(contract.contractEnd)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (!isNaN(end.getTime()) && end < today) return true
+  }
+  return false
+}
+
 // ─── 計算合約總月費（依案場 billingMode 不同處理）──────────────────────────────
 export function getContractMonthlyTotal(sites = []) {
   return sites.reduce((sum, site) => {

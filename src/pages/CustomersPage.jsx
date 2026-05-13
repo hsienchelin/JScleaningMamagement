@@ -3,6 +3,7 @@ import { Plus, Search, MapPin, Phone, Mail, ChevronDown, ChevronRight, Landmark,
 import { COL, addCustomer, updateCustomer, deleteCustomer } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
+import { isContractEnded } from '../utils/contractSchema'
 import clsx from 'clsx'
 
 // ─── Category config ──────────────────────────────────────────────────────────
@@ -213,14 +214,12 @@ export default function CustomersPage() {
   const { data: annualContracts } = useCollection(COL.ANNUAL_CONTRACTS)
   const { data: orders }          = useCollection(COL.ORDERS)
 
-  // 案場以「合約」為單一真實來源，只統計「進行中」的合約（已結束/已取消歸歷史頁）
+  // 案場以「合約」為單一真實來源，只統計進行中（未過期、未手動標 ended）的合約
   const sitesByCustomer = useMemo(() => {
     const map = {}
     annualContracts.forEach(c => {
       if (!c.customerId) return
-      const status = c.status || 'active'
-      // 排除已結束 / 已完成 / 已取消
-      if (status === 'ended' || status === 'completed' || status === 'cancelled') return
+      if (isContractEnded(c)) return  // 已過期或已結束都歸歷史頁
       const arr = map[c.customerId] || []
       const seenNames = new Set(arr.map(s => s.name))
       ;(c.sites || []).forEach(s => {

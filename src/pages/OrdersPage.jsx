@@ -15,6 +15,7 @@ import {
   BILLING_MODES, BILLING_MODE_MAP, SCHEDULE_TYPES, SCHEDULE_TYPE_MAP,
   getSiteMonthlyBase, getContractMonthlyTotal,
   isTaskDueInMonth, isTaskCompletedInPeriod, getTaskScheduleText,
+  isContractEnded,
   rangeMonths, getDispatchRemaining, getDispatchRevenueMax, getWeeklyAnnualTotal,
   WEEKDAYS, makeNewSite, makeNewMonthlyItem, makeNewDispatchPlanItem,
 } from '../utils/contractSchema'
@@ -2730,9 +2731,13 @@ function ContractDetail({ contract, onBack }) {
   const [newSiteBase,  setNewSiteBase]  = useState('')
   const [addSiteErr,   setAddSiteErr]   = useState('')
   const [addSiteSaving,setAddSiteSaving]= useState(false)
+  const [showEditContract, setShowEditContract] = useState(false)
+  // 合約 metadata 編輯本地 state（開 modal 時複製進來）
+  const [localContract, setLocalContract] = useState(contract)
+  useEffect(() => setLocalContract(contract), [contract.id])
 
-  const start = new Date(contract.contractStart)
-  const end   = new Date(contract.contractEnd)
+  const start = new Date(localContract.contractStart)
+  const end   = new Date(localContract.contractEnd)
   const now   = new Date()
 
   const rawPct         = ((now - start) / (end - start)) * 100
@@ -2742,7 +2747,14 @@ function ContractDetail({ contract, onBack }) {
   const sites          = localSites
   const monthlyTotal   = getContractMonthlyTotal(sites)
   const billedSoFar    = monthlyTotal * Math.max(0, monthsElapsed - 1)
-  const customerName   = contract.customerName || ''
+  const customerName   = localContract.customerName || ''
+
+  // 存合約 metadata（title / contractStart / contractEnd / contractNo / totalValue / paymentMode / status）
+  const handleSaveContract = async (patch) => {
+    await updateAnnualContract(contract.id, patch)
+    setLocalContract(prev => ({ ...prev, ...patch }))
+    setShowEditContract(false)
+  }
 
   const handleSaveSite = async (updatedSite) => {
     const newSites = localSites.map(s => s.id === updatedSite.id ? updatedSite : s)
@@ -2802,25 +2814,32 @@ function ContractDetail({ contract, onBack }) {
           <ArrowLeft size={15} /> 返回
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold text-gray-900 leading-snug">{contract.title}</h1>
+          <h1 className="text-lg font-bold text-gray-900 leading-snug">{localContract.title}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-gray-500">
             <span>{customerName}</span>
             <span>·</span>
-            <span>{contract.contractStart} ~ {contract.contractEnd}</span>
-            <span className={`badge ${STATUS_BADGE[contract.status]}`}>{STATUS_LABEL[contract.status]}</span>
-            {contract.contractNo && (
-              <span className="badge badge-gray text-[10px]">合約編號 {contract.contractNo}</span>
+            <span>{localContract.contractStart} ~ {localContract.contractEnd}</span>
+            <span className={`badge ${STATUS_BADGE[localContract.status]}`}>{STATUS_LABEL[localContract.status]}</span>
+            {localContract.contractNo && (
+              <span className="badge badge-gray text-[10px]">合約編號 {localContract.contractNo}</span>
             )}
             <span className="badge bg-purple-100 text-purple-700 text-[10px]">
-              {contract.paymentMode === 'actual' ? '核實請款' : '平均攤提'}
+              {localContract.paymentMode === 'actual' ? '核實請款' : '平均攤提'}
             </span>
-            {Array.isArray(contract.amendments) && contract.amendments.length > 0 && (
+            {Array.isArray(localContract.amendments) && localContract.amendments.length > 0 && (
               <span className="badge bg-amber-100 text-amber-700 text-[10px]">
-                已變更 {contract.amendments.length} 次
+                已變更 {localContract.amendments.length} 次
               </span>
             )}
           </div>
         </div>
+        <button
+          onClick={() => setShowEditContract(true)}
+          className="shrink-0 mt-0.5 btn-secondary py-1.5 px-3"
+          title="編輯合約資訊"
+        >
+          <Pencil size={14} /> 編輯
+        </button>
         <button
           onClick={handleDeleteContract}
           className="shrink-0 mt-0.5 text-sm text-red-600 hover:text-red-700 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
@@ -2833,7 +2852,7 @@ function ContractDetail({ contract, onBack }) {
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: '合約總金額',  value: `$${contract.totalValue.toLocaleString()}`,        sub: '含稅' },
+          { label: '合約總金額',  value: `$${(localContract.totalValue || 0).toLocaleString()}`,        sub: '含稅' },
           { label: '月均收入',    value: `$${monthlyTotal.toLocaleString()}`,   sub: `${sites.length} 個案場合計`, highlight: true },
           { label: '合約案場',    value: `${sites.length} 個`,                   sub: `共 ${sites.reduce((s, si) => s + (si.shifts?.length || 0), 0)} 個班別` },
           { label: '執行進度',    value: `第 ${monthsElapsed} / ${totalMonths} 月`, sub: `${pctElapsed.toFixed(0)}% 完成` },
@@ -2849,9 +2868,9 @@ function ContractDetail({ contract, onBack }) {
       {/* Progress bar */}
       <div className="card px-4 py-3.5 space-y-2">
         <div className="flex justify-between text-xs text-gray-500">
-          <span>{contract.contractStart}</span>
+          <span>{localContract.contractStart}</span>
           <span className="font-semibold text-brand-600">合約執行進度 {pctElapsed.toFixed(0)}%</span>
-          <span>{contract.contractEnd}</span>
+          <span>{localContract.contractEnd}</span>
         </div>
         <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
           <div
@@ -2861,7 +2880,7 @@ function ContractDetail({ contract, onBack }) {
         </div>
         <div className="flex justify-between text-[11px] text-gray-400">
           <span>已請款估算 ${billedSoFar.toLocaleString()}</span>
-          <span>剩餘 ${(contract.totalValue - billedSoFar).toLocaleString()}</span>
+          <span>剩餘 ${((localContract.totalValue || 0) - billedSoFar).toLocaleString()}</span>
         </div>
       </div>
 
@@ -2940,6 +2959,131 @@ function ContractDetail({ contract, onBack }) {
           onClose={() => setEditingSite(null)}
         />
       )}
+
+      {showEditContract && (
+        <EditContractModal
+          contract={localContract}
+          onSave={handleSaveContract}
+          onClose={() => setShowEditContract(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Edit Contract Metadata Modal ─────────────────────────────────────────────
+function EditContractModal({ contract, onSave, onClose }) {
+  const [title,         setTitle]         = useState(contract.title || '')
+  const [contractNo,    setContractNo]    = useState(contract.contractNo || '')
+  const [contractStart, setContractStart] = useState(contract.contractStart || '')
+  const [contractEnd,   setContractEnd]   = useState(contract.contractEnd || '')
+  const [totalValue,    setTotalValue]    = useState(String(contract.totalValue || ''))
+  const [paymentMode,   setPaymentMode]   = useState(contract.paymentMode || 'averaged')
+  const [status,        setStatus]        = useState(contract.status || 'active')
+  const [saving,        setSaving]        = useState(false)
+  const [err,           setErr]           = useState('')
+
+  const handleSave = async () => {
+    if (!title.trim())     { setErr('請填寫合約名稱'); return }
+    if (!contractStart || !contractEnd) { setErr('請填寫合約期間'); return }
+    setSaving(true); setErr('')
+    try {
+      await onSave({
+        title:         title.trim(),
+        contractNo:    contractNo.trim(),
+        contractStart,
+        contractEnd,
+        totalValue:    Number(totalValue) || 0,
+        paymentMode,
+        status,
+      })
+    } catch (e) {
+      setErr('儲存失敗：' + (e.message || '請稍後再試'))
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-gray-900">編輯合約資訊</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">合約名稱 *</label>
+              <input className="input" value={title} onChange={e => setTitle(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">合約編號</label>
+              <input className="input" placeholder="例：JX-115-S001" value={contractNo} onChange={e => setContractNo(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">合約開始 *</label>
+              <input className="input" type="date" value={contractStart} onChange={e => setContractStart(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">合約結束 *</label>
+              <input className="input" type="date" value={contractEnd} onChange={e => setContractEnd(e.target.value)} />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">合約總額（含稅）</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+              <input className="input pl-7" type="number" min="0" value={totalValue} onChange={e => setTotalValue(e.target.value)} />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">付款方式</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'averaged', label: '平均攤提', desc: '合約總額 ÷ 12 個月' },
+                { id: 'actual',   label: '核實請款', desc: '依每月實際施作核實' },
+              ].map(o => (
+                <button
+                  key={o.id} type="button"
+                  onClick={() => setPaymentMode(o.id)}
+                  className={clsx('text-left rounded-xl border-2 px-3 py-2 transition-colors',
+                    paymentMode === o.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200 bg-white hover:border-gray-300')}
+                >
+                  <p className="text-sm font-semibold text-gray-800">{o.label}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{o.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="label">合約狀態</label>
+            <select className="input" value={status} onChange={e => setStatus(e.target.value)}>
+              <option value="active">進行中</option>
+              <option value="ended">已結束</option>
+              <option value="cancelled">已取消</option>
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              💡 過期日期已過會自動歸類為「已結束」，手動標記只在提前終止時使用
+            </p>
+          </div>
+
+          {err && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{err}</p>}
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button className="btn-secondary" onClick={onClose} disabled={saving}>取消</button>
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? '儲存中...' : '儲存變更'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -3060,11 +3204,16 @@ export default function OrdersPage() {
 
   const { data: annualContractsRaw } = useCollection(COL.ANNUAL_CONTRACTS)
   const { data: workOrdersRaw }      = useCollection(COL.WORK_ORDERS)
+  // 「進行中」= 未過期且未手動標 ended；「ended」= 過期或手動標 ended
   const annualContracts = annualContractsRaw
     .filter(c => c.orgId === activeOrgId)
-    .filter(c => contractFilter === 'all' || c.status === contractFilter)
+    .filter(c => {
+      if (contractFilter === 'all') return true
+      const ended = isContractEnded(c)
+      return contractFilter === 'ended' ? ended : !ended
+    })
   const activeAnnual = annualContractsRaw
-    .filter(c => c.orgId === activeOrgId && c.status === 'active').length
+    .filter(c => c.orgId === activeOrgId && !isContractEnded(c)).length
 
   // ── Annual contract form state ──
   const [showAnnualForm,    setShowAnnualForm]    = useState(false)
