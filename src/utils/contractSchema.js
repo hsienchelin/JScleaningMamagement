@@ -84,6 +84,88 @@ export function isContractEnded(contract) {
   return false
 }
 
+// ─── 合約生命週期（依日期 + status 自動推算）──────────────────────────────────
+// 'not_started' | 'active' | 'ended'
+//
+// 1. status 是 ended/completed/cancelled → 已結束
+// 2. contractEnd 已過 → 已結束
+// 3. contractStart 還沒到 → 未開始
+// 4. 其他 → 進行中
+export function getContractLifecycleStatus(contract) {
+  if (!contract) return 'active'
+  const s = contract.status
+  if (s === 'ended' || s === 'completed' || s === 'cancelled') return 'ended'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  if (contract.contractEnd) {
+    const end = new Date(contract.contractEnd)
+    if (!isNaN(end.getTime()) && end < today) return 'ended'
+  }
+  if (contract.contractStart) {
+    const start = new Date(contract.contractStart)
+    if (!isNaN(start.getTime()) && start > today) return 'not_started'
+  }
+  return 'active'
+}
+
+export const CONTRACT_LIFECYCLE = {
+  not_started: { label: '未開始', badge: 'bg-blue-100 text-blue-700',   dot: 'bg-blue-400'  },
+  active:      { label: '進行中', badge: 'bg-green-100 text-green-700', dot: 'bg-green-400' },
+  ended:       { label: '已結束', badge: 'bg-gray-200 text-gray-600',   dot: 'bg-gray-400'  },
+}
+
+// ─── 複製合約（深拷貝、重生 ID、清掉執行紀錄）─────────────────────────────────
+// 用途：標到類似/續約合約時快速複製、再微調
+// 保留：案場結構、計費模式、月固定明細、班次定義、週期任務定義、
+//      派工計畫定義、指派員工、locations、weeklySchedule
+// 清空：amendments、weeklyVisits、completedMonths、scheduledDate、
+//      lastCompletedDate、dispatchPlan[].usedCount/usageHistory、contractNo
+// 重生：所有 site / monthlyItem / dispatchPlan item / shift / periodicTask 的 id
+const _newId = (prefix) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+export function cloneContractData(source, overrides = {}) {
+  if (!source) return null
+
+  const clonedSites = (source.sites || []).map(site => ({
+    ...site,
+    id:           _newId('site'),
+    monthlyItems: (site.monthlyItems || []).map(item => ({ ...item, id: _newId('mi') })),
+    dispatchPlan: (site.dispatchPlan || []).map(d => ({
+      ...d,
+      id:           _newId('dp'),
+      usedCount:    0,
+      usageHistory: [],
+    })),
+    shifts: (site.shifts || []).map(s => ({ ...s, id: _newId('shift') })),
+    periodicTasks: (site.periodicTasks || []).map(t => ({
+      ...t,
+      id:                _newId('task'),
+      completedMonths:   [],
+      scheduledDate:     null,
+      lastCompletedDate: '',
+    })),
+    weeklyVisits: [],
+  }))
+
+  return {
+    orgId:         source.orgId,
+    title:         source.title || '',
+    contractNo:    '',          // 編號清空
+    customerId:    source.customerId,
+    customerName:  source.customerName,
+    contractStart: '',          // 期間留空，必填
+    contractEnd:   '',
+    totalValue:    Number(source.totalValue) || 0,
+    paymentMode:   source.paymentMode || 'averaged',
+    status:        'active',    // 配合未來日期 → 列表會自動顯示「未開始」
+    sites:         clonedSites,
+    amendments:    [],
+    notes:         source.notes || '',
+    ...overrides,
+  }
+}
+
 // ─── 計算合約總月費（依案場 billingMode 不同處理）──────────────────────────────
 export function getContractMonthlyTotal(sites = []) {
   return sites.reduce((sum, site) => {

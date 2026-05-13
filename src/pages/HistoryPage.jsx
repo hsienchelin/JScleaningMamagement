@@ -5,8 +5,10 @@ import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
 import {
   getSiteMonthlyBase, getContractMonthlyTotal, isContractEnded,
+  getContractLifecycleStatus, CONTRACT_LIFECYCLE,
   BILLING_MODE_MAP, getTaskScheduleText, getWeeklyAnnualTotal, WEEKDAYS,
 } from '../utils/contractSchema'
+import CloneContractModal from '../components/CloneContractModal'
 import clsx from 'clsx'
 
 const CLEAN_TYPE_LABEL = {
@@ -194,7 +196,7 @@ function HistorySiteDetail({ site, shiftCodes = [] }) {
 }
 
 // ─── Annual contract history card ─────────────────────────────────────────────
-function ContractCard({ contract, customers, shiftCodes = [] }) {
+function ContractCard({ contract, customers, shiftCodes = [], onClone }) {
   const [open, setOpen] = useState(false)
   const customer    = customers.find(c => c.id === contract.customerId)
   const totalAnnual = getContractMonthlyTotal(contract.sites || []) * 12
@@ -229,6 +231,11 @@ function ContractCard({ contract, customers, shiftCodes = [] }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-bold text-gray-900">{contract.title || '年度合約'}</span>
             <span className="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full font-medium">年度合約</span>
+            {(() => {
+              const lc = getContractLifecycleStatus(contract)
+              const meta = CONTRACT_LIFECYCLE[lc] || CONTRACT_LIFECYCLE.ended
+              return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${meta.badge}`}>{meta.label}</span>
+            })()}
             {contract.contractNo && (
               <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">合約編號 {contract.contractNo}</span>
             )}
@@ -318,6 +325,21 @@ function ContractCard({ contract, customers, shiftCodes = [] }) {
               </div>
             </div>
           )}
+
+          {/* 複製成新合約 */}
+          {onClone && (
+            <div className="pt-2 border-t border-gray-200">
+              <button
+                onClick={() => onClone(contract)}
+                className="btn-primary text-sm w-full justify-center"
+              >
+                📋 複製成新合約（用於續約 / 類似標案）
+              </button>
+              <p className="text-[11px] text-gray-400 text-center mt-1.5">
+                結構、班次、週期任務都會完整複製；執行紀錄會清空
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -333,6 +355,7 @@ export default function HistoryPage() {
   const { data: shiftCodesRaw }      = useCollection(COL.SHIFT_CODES)
   const [search, setSearch]          = useState('')
   const [tab, setTab]                = useState('orders')
+  const [cloneSource, setCloneSource] = useState(null)  // 點「複製成新合約」時設定
 
   const customers  = customersRaw.filter(c => c.orgId === activeOrgId)
   const shiftCodes = shiftCodesRaw.filter(c => c.orgId === activeOrgId)
@@ -428,10 +451,27 @@ export default function HistoryPage() {
         ) : (
           <div className="space-y-3">
             {endedContracts.map(c => (
-              <ContractCard key={c.id} contract={c} customers={customers} shiftCodes={shiftCodes} />
+              <ContractCard
+                key={c.id}
+                contract={c}
+                customers={customers}
+                shiftCodes={shiftCodes}
+                onClone={(src) => setCloneSource(src)}
+              />
             ))}
           </div>
         )
+      )}
+
+      {cloneSource && (
+        <CloneContractModal
+          source={cloneSource}
+          onSuccess={() => {
+            setCloneSource(null)
+            alert('已建立複本合約！請至「訂單 & 合約 → 年度合約」分頁查看（未開始狀態）')
+          }}
+          onClose={() => setCloneSource(null)}
+        />
       )}
     </div>
   )

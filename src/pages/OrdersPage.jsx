@@ -15,10 +15,11 @@ import {
   BILLING_MODES, BILLING_MODE_MAP, SCHEDULE_TYPES, SCHEDULE_TYPE_MAP,
   getSiteMonthlyBase, getContractMonthlyTotal,
   isTaskDueInMonth, isTaskCompletedInPeriod, getTaskScheduleText,
-  isContractEnded,
+  isContractEnded, getContractLifecycleStatus, CONTRACT_LIFECYCLE,
   rangeMonths, getDispatchRemaining, getDispatchRevenueMax, getWeeklyAnnualTotal,
   WEEKDAYS, makeNewSite, makeNewMonthlyItem, makeNewDispatchPlanItem,
 } from '../utils/contractSchema'
+import CloneContractModal from '../components/CloneContractModal'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MONTHS_ZH = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月']
@@ -2732,6 +2733,7 @@ function ContractDetail({ contract, onBack }) {
   const [addSiteErr,   setAddSiteErr]   = useState('')
   const [addSiteSaving,setAddSiteSaving]= useState(false)
   const [showEditContract, setShowEditContract] = useState(false)
+  const [showCloneModal,   setShowCloneModal]   = useState(false)
   // 合約 metadata 編輯本地 state（開 modal 時複製進來）
   const [localContract, setLocalContract] = useState(contract)
   useEffect(() => setLocalContract(contract), [contract.id])
@@ -2819,7 +2821,11 @@ function ContractDetail({ contract, onBack }) {
             <span>{customerName}</span>
             <span>·</span>
             <span>{localContract.contractStart} ~ {localContract.contractEnd}</span>
-            <span className={`badge ${STATUS_BADGE[localContract.status]}`}>{STATUS_LABEL[localContract.status]}</span>
+            {(() => {
+              const lc = getContractLifecycleStatus(localContract)
+              const meta = CONTRACT_LIFECYCLE[lc] || CONTRACT_LIFECYCLE.active
+              return <span className={`badge ${meta.badge}`}>{meta.label}</span>
+            })()}
             {localContract.contractNo && (
               <span className="badge badge-gray text-[10px]">合約編號 {localContract.contractNo}</span>
             )}
@@ -2833,6 +2839,13 @@ function ContractDetail({ contract, onBack }) {
             )}
           </div>
         </div>
+        <button
+          onClick={() => setShowCloneModal(true)}
+          className="shrink-0 mt-0.5 btn-secondary py-1.5 px-3"
+          title="複製成新合約"
+        >
+          📋 複製
+        </button>
         <button
           onClick={() => setShowEditContract(true)}
           className="shrink-0 mt-0.5 btn-secondary py-1.5 px-3"
@@ -2965,6 +2978,18 @@ function ContractDetail({ contract, onBack }) {
           contract={localContract}
           onSave={handleSaveContract}
           onClose={() => setShowEditContract(false)}
+        />
+      )}
+
+      {showCloneModal && (
+        <CloneContractModal
+          source={localContract}
+          onSuccess={() => {
+            setShowCloneModal(false)
+            // 回到列表（新合約會自動出現在進行中分頁的「未開始」狀態）
+            onBack()
+          }}
+          onClose={() => setShowCloneModal(false)}
         />
       )}
     </div>
@@ -3113,7 +3138,11 @@ function AnnualContractCard({ contract, onSelect, customerName }) {
             <span className="font-semibold text-gray-900 group-hover:text-brand-700 transition-colors line-clamp-1">
               {contract.title}
             </span>
-            <span className={`badge ${STATUS_BADGE[contract.status]} shrink-0`}>{STATUS_LABEL[contract.status]}</span>
+            {(() => {
+              const lc = getContractLifecycleStatus(contract)
+              const meta = CONTRACT_LIFECYCLE[lc] || CONTRACT_LIFECYCLE.active
+              return <span className={`badge ${meta.badge} shrink-0`}>{meta.label}</span>
+            })()}
             {dueTasks > 0 && (
               <span className="badge bg-amber-100 text-amber-700 shrink-0">本月 {dueTasks} 項週期任務</span>
             )}
