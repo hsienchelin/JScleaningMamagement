@@ -2741,10 +2741,14 @@ function ContractDetail({ contract, onBack }) {
   const start = new Date(localContract.contractStart)
   const end   = new Date(localContract.contractEnd)
   const now   = new Date()
+  const notStarted = !isNaN(start.getTime()) && start > now
 
   const rawPct         = ((now - start) / (end - start)) * 100
-  const pctElapsed     = isNaN(rawPct) ? 0 : Math.min(100, rawPct)
-  const monthsElapsed  = Math.max(1, (now.getFullYear() * 12 + now.getMonth()) - (start.getFullYear() * 12 + start.getMonth()) + 1)
+  // 未開始 → 0%；已結束 → 100%；進行中 → 比例。clamp 到 0~100 避免負值
+  const pctElapsed     = isNaN(rawPct) ? 0 : Math.max(0, Math.min(100, rawPct))
+  // 未開始時 monthsElapsed 為 0，不再硬塞最小 1
+  const monthDiff      = (now.getFullYear() * 12 + now.getMonth()) - (start.getFullYear() * 12 + start.getMonth()) + 1
+  const monthsElapsed  = notStarted ? 0 : Math.max(1, monthDiff)
   const totalMonths    = Math.max(1, Math.round((end - start) / (30 * 24 * 3600 * 1000)))
   const sites          = localSites
   const monthlyTotal   = getContractMonthlyTotal(sites)
@@ -2868,7 +2872,7 @@ function ContractDetail({ contract, onBack }) {
           { label: '合約總金額',  value: `$${(localContract.totalValue || 0).toLocaleString()}`,        sub: '含稅' },
           { label: '月均收入',    value: `$${monthlyTotal.toLocaleString()}`,   sub: `${sites.length} 個案場合計`, highlight: true },
           { label: '合約案場',    value: `${sites.length} 個`,                   sub: `共 ${sites.reduce((s, si) => s + (si.shifts?.length || 0), 0)} 個班別` },
-          { label: '執行進度',    value: `第 ${monthsElapsed} / ${totalMonths} 月`, sub: `${pctElapsed.toFixed(0)}% 完成` },
+          { label: '執行進度',    value: notStarted ? '未開始' : `第 ${monthsElapsed} / ${totalMonths} 月`, sub: `${pctElapsed.toFixed(0)}% 完成` },
         ].map(({ label, value, sub, highlight }) => (
           <div key={label} className="card p-3.5">
             <p className="text-xs text-gray-400">{label}</p>
@@ -3118,7 +3122,9 @@ function AnnualContractCard({ contract, onSelect, customerName }) {
   const now     = new Date()
   const start   = new Date(contract.contractStart)
   const end     = new Date(contract.contractEnd)
-  const pct     = Math.min(100, ((now - start) / (end - start)) * 100).toFixed(0)
+  // 未開始 0%，已結束 100%，clamp 避免負值
+  const rawPct  = ((now - start) / (end - start)) * 100
+  const pct     = isNaN(rawPct) ? '0' : Math.max(0, Math.min(100, rawPct)).toFixed(0)
   const monthly = getContractMonthlyTotal(contract.sites || [])
 
   // Count periodic tasks due this month
