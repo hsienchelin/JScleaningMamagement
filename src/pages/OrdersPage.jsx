@@ -523,13 +523,17 @@ function PrintInvoiceModal({ order, customer, orgId, workOrder, onClose }) {
   // 明細列：優先從已核准工務請款單帶入施工日期
   const defaultLocation = order.siteAddress || order.siteName || ''
   const [items, setItems] = useState(() => {
-    const sessions = workOrder?.sessions || []
+    const sessions   = workOrder?.sessions || []
+    const totalPrice = Number(order.totalPrice) || 0
     if (sessions.length > 0) {
+      // 平均分配總價到各 session（最後一列吸收四捨五入餘數，確保加總 = 原總價）
+      const n = sessions.length
+      const per = n > 0 ? Math.floor(totalPrice / n) : 0
       return sessions.map((s, i) => ({
         id: `r${i + 1}`,
         date:     s.date || '',
         location: defaultLocation,
-        amount:   0,
+        amount:   i === n - 1 ? (totalPrice - per * (n - 1)) : per,
         notes:    '',
       }))
     }
@@ -537,7 +541,7 @@ function PrintInvoiceModal({ order, customer, orgId, workOrder, onClose }) {
       id: 'r1',
       date:     order.contractStart || '',
       location: defaultLocation,
-      amount:   order.totalPrice || 0,
+      amount:   totalPrice,
       notes:    order.notes || '',
     }]
   })
