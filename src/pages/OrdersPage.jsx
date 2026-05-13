@@ -988,6 +988,7 @@ function BillingDraft({ contract, sites = [] }) {
 
   // ── 匯出 CSV（Excel 直接開、含 BOM 不亂碼）─────────────────────────────────
   const handleExport = () => {
+    const fmt = (n) => Number(n || 0).toLocaleString()  // 千分位格式：44500 → "44,500"
     const rows = []
     rows.push(['項目', '單位', '數量', '單價', '複價', '備註'])
 
@@ -1002,48 +1003,47 @@ function BillingDraft({ contract, sites = [] }) {
         // 若有 monthlyItems 逐項展開
         if (Array.isArray(site.monthlyItems) && site.monthlyItems.length > 0) {
           site.monthlyItems.forEach(item => {
-            rows.push([
-              `${site.name}　${item.name}`, '月', 1,
-              Number(item.amount) || 0, Number(item.amount) || 0, '',
-            ])
+            const amt = Number(item.amount) || 0
+            rows.push([`${site.name}　${item.name}`, '月', 1, fmt(amt), fmt(amt), ''])
           })
         } else {
-          rows.push([`${site.name}　全區環境清潔`, '月', 1, base, base, ''])
+          rows.push([`${site.name}　全區環境清潔`, '月', 1, fmt(base), fmt(base), ''])
         }
       })
-      rows.push(['', '', '', '', stationedTotal, '常態項目小計'])
+      rows.push(['', '', '', '', fmt(stationedTotal), '常態項目小計'])
     }
 
     // 週期任務（已核准）
     if (periodicCompleted.length > 0) {
       rows.push(['【週期性重點清潔（本月已核准完成）】', '', '', '', '', ''])
       periodicCompleted.forEach(t => {
-        rows.push([t.name, '次', 1, t.unitPrice || 0, t.unitPrice || 0, t.siteName])
+        const p = Number(t.unitPrice) || 0
+        rows.push([t.name, '次', 1, fmt(p), fmt(p), t.siteName])
       })
-      rows.push(['', '', '', '', periodicTotal, '週期項目小計'])
+      rows.push(['', '', '', '', fmt(periodicTotal), '週期項目小計'])
     }
 
     // 每週固定訪視
     if (weeklyRows.length > 0) {
       rows.push(['【每週固定訪視（本月已核准）】', '', '', '', '', ''])
       weeklyRows.forEach(r => {
-        rows.push([`${r.siteName}　週次訪視`, '次', r.count, r.unitPrice, r.subtotal, `${r.count} 次 × $${r.unitPrice.toLocaleString()}`])
+        rows.push([`${r.siteName}　週次訪視`, '次', r.count, fmt(r.unitPrice), fmt(r.subtotal), `${r.count} 次 × $${fmt(r.unitPrice)}`])
       })
-      rows.push(['', '', '', '', weeklyTotal, '週次訪視小計'])
+      rows.push(['', '', '', '', fmt(weeklyTotal), '週次訪視小計'])
     }
 
     // 按次派工
     if (dispatchRows.length > 0) {
       rows.push(['【按次派工（本月已核准）】', '', '', '', '', ''])
       dispatchRows.forEach(r => {
-        rows.push([`${r.siteName}　${r.itemName}`, '次', r.count, r.unitPrice, r.subtotal, `${r.count} 次 × $${r.unitPrice.toLocaleString()}`])
+        rows.push([`${r.siteName}　${r.itemName}`, '次', r.count, fmt(r.unitPrice), fmt(r.subtotal), `${r.count} 次 × $${fmt(r.unitPrice)}`])
       })
-      rows.push(['', '', '', '', dispatchTotal, '按次派工小計'])
+      rows.push(['', '', '', '', fmt(dispatchTotal), '按次派工小計'])
     }
 
     rows.push(['', '', '', '', '', ''])
-    rows.push(['', '', '', '本月請款合計（未稅）', grandTotal, ''])
-    rows.push(['', '', '', '含稅總計（×1.05）',    taxTotal,   ''])
+    rows.push(['', '', '', '本月請款合計（未稅）', fmt(grandTotal), ''])
+    rows.push(['', '', '', '含稅總計（×1.05）',    fmt(taxTotal),   ''])
 
     // 標頭資訊
     const meta = [
