@@ -3586,7 +3586,7 @@ export default function OrdersPage() {
 
       {/* ── Unified new order modal ── */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-6 my-4">
             <h2 className="text-lg font-bold text-gray-900 mb-4">新增訂單</h2>
             {/* 類型選擇 */}
