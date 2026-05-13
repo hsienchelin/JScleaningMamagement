@@ -55,7 +55,11 @@ const CATEGORY_ORDER = ['gov', 'stationed', 'regular', 'designer', 'peer', 'temp
 
 // ─── Site row ─────────────────────────────────────────────────────────────────
 function SiteRow({ site }) {
-  const hasGeo  = Number(site.lat) || Number(site.lng) || Number(site.area)
+  // 防呆：所有數值都先轉 Number 並落到 0，避免 NaN
+  const lat  = Number(site.lat)  || 0
+  const lng  = Number(site.lng)  || 0
+  const area = Number(site.area) || 0
+  const hasGeo = lat !== 0 || lng !== 0 || area !== 0
   return (
     <div className="flex items-start gap-3 py-2.5 pl-8 pr-4 border-t border-gray-100 bg-gray-50">
       <MapPin size={14} className="text-brand-500 mt-0.5 shrink-0" />
@@ -64,7 +68,7 @@ function SiteRow({ site }) {
         {site.address && <p className="text-xs text-gray-500 truncate">{site.address}</p>}
         {hasGeo && (
           <p className="text-xs text-gray-400">
-            GPS: {Number(site.lat || 0).toFixed(4)}, {Number(site.lng || 0).toFixed(4)} · {Number(site.area || 0)} ㎡
+            GPS: {lat.toFixed(4)}, {lng.toFixed(4)} · {area} ㎡
           </p>
         )}
         {site.contractTitle && (
@@ -75,11 +79,39 @@ function SiteRow({ site }) {
   )
 }
 
+// ─── Order row（單次案件 ── for 設計師/同行/臨時等）─────────────────────────
+function OrderRow({ order }) {
+  return (
+    <div className="flex items-start gap-3 py-2.5 pl-8 pr-4 border-t border-gray-100 bg-gray-50">
+      <Building2 size={14} className="text-purple-500 mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-700">{order.title || order.siteName || '單次案件'}</p>
+        {order.siteAddress && <p className="text-xs text-gray-500 truncate">{order.siteAddress}</p>}
+        <p className="text-[11px] text-gray-400 mt-0.5">
+          {order.contractStart || ''}{order.contractEnd ? ` ~ ${order.contractEnd}` : ''}
+          {order.totalPrice > 0 && ` · $${Number(order.totalPrice).toLocaleString()}`}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Customer card ────────────────────────────────────────────────────────────
-function CustomerCard({ customer, sites = [], onEdit }) {
+function CustomerCard({ customer, sites = [], orders = [], onEdit }) {
   const [expanded, setExpanded] = useState(false)
   const cat = CATEGORY[customer.category] || CATEGORY.regular
   const CatIcon = cat.icon
+  const siteCount  = sites.length
+  const orderCount = orders.length
+
+  // badge 文案：案場 + 案件（兩者都有就都顯示，都 0 就顯示「0 個」）
+  const badge = siteCount > 0 && orderCount > 0
+    ? `${siteCount} 案場 · ${orderCount} 案件`
+    : siteCount > 0
+      ? `${siteCount} 個案場`
+      : orderCount > 0
+        ? `${orderCount} 個案件`
+        : '尚無案場/案件'
 
   return (
     <div className="card overflow-hidden">
@@ -107,7 +139,7 @@ function CustomerCard({ customer, sites = [], onEdit }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="badge badge-blue">{sites.length} 個案場</span>
+          <span className="badge badge-blue">{badge}</span>
           <button
             className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors text-gray-400 hover:text-gray-600"
             onClick={e => { e.stopPropagation(); onEdit(customer) }}
@@ -121,20 +153,23 @@ function CustomerCard({ customer, sites = [], onEdit }) {
         </div>
       </div>
 
-      {expanded && sites.length === 0 && (
+      {expanded && siteCount === 0 && orderCount === 0 && (
         <div className="px-8 py-3 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">
-          尚無案場（建立年度合約或單次訂單後自動顯示）
+          尚無案場/案件（建立年度合約或單次訂單後自動顯示）
         </div>
       )}
       {expanded && sites.map(site => (
-        <SiteRow key={`${site.contractId || 'c'}-${site.id}`} site={site} />
+        <SiteRow key={`s-${site.contractId || 'c'}-${site.id}`} site={site} />
+      ))}
+      {expanded && orders.map(order => (
+        <OrderRow key={`o-${order.id}`} order={order} />
       ))}
     </div>
   )
 }
 
 // ─── Category section ─────────────────────────────────────────────────────────
-function CategorySection({ categoryKey, customers, sitesByCustomer, onEdit }) {
+function CategorySection({ categoryKey, customers, sitesByCustomer, ordersByCustomer, onEdit }) {
   const cat = CATEGORY[categoryKey]
   if (!cat || customers.length === 0) return null
   const CatIcon = cat.icon
@@ -155,6 +190,7 @@ function CategorySection({ categoryKey, customers, sitesByCustomer, onEdit }) {
           key={c.id}
           customer={c}
           sites={sitesByCustomer[c.id] || []}
+          orders={ordersByCustomer[c.id] || []}
           onEdit={onEdit}
         />
       ))}
@@ -175,6 +211,7 @@ export default function CustomersPage() {
 
   const { data: customers }       = useCollection(COL.CUSTOMERS)
   const { data: annualContracts } = useCollection(COL.ANNUAL_CONTRACTS)
+  const { data: orders }          = useCollection(COL.ORDERS)
 
   // 案場以「合約」為單一真實來源，依 customerId 聚合（避免 customer.sites 不同步問題）
   const sitesByCustomer = useMemo(() => {
@@ -192,6 +229,18 @@ export default function CustomersPage() {
     })
     return map
   }, [annualContracts])
+
+  // 單次案件（訂單）依 customerId 聚合 — 給設計師/同行/臨時類客戶看到案件數
+  const ordersByCustomer = useMemo(() => {
+    const map = {}
+    orders.forEach(o => {
+      if (!o.customerId) return
+      const arr = map[o.customerId] || []
+      arr.push(o)
+      map[o.customerId] = arr
+    })
+    return map
+  }, [orders])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -254,7 +303,8 @@ export default function CustomersPage() {
     .filter(c => c.name?.includes(search) || c.contact?.includes(search))
     .filter(c => filterCat === 'all' || c.category === filterCat)
 
-  const totalSites = allCustomers.reduce((s, c) => s + (sitesByCustomer[c.id]?.length || 0), 0)
+  const totalSites  = allCustomers.reduce((s, c) => s + (sitesByCustomer[c.id]?.length  || 0), 0)
+  const totalOrders = allCustomers.reduce((s, c) => s + (ordersByCustomer[c.id]?.length || 0), 0)
 
   // Count per category (from unfiltered org list, for tab badges)
   const orgCustomers = customers.filter(c => c.orgId === activeOrgId)
@@ -310,7 +360,7 @@ export default function CustomersPage() {
           </button>
         ))}
         <span className="ml-auto text-sm text-gray-400">
-          合計 <strong className="text-gray-700">{totalSites}</strong> 個案場
+          合計 <strong className="text-gray-700">{totalSites}</strong> 案場 · <strong className="text-gray-700">{totalOrders}</strong> 案件
         </span>
       </div>
 
@@ -328,6 +378,7 @@ export default function CustomersPage() {
               categoryKey={key}
               customers={allCustomers.filter(c => c.category === key)}
               sitesByCustomer={sitesByCustomer}
+              ordersByCustomer={ordersByCustomer}
               onEdit={openEdit}
             />
           ))}
@@ -339,6 +390,7 @@ export default function CustomersPage() {
               key={c.id}
               customer={c}
               sites={sitesByCustomer[c.id] || []}
+              orders={ordersByCustomer[c.id] || []}
               onEdit={openEdit}
             />
           ))}
