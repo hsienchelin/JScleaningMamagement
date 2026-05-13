@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Plus, Search, MapPin, Phone, Mail, ChevronDown, ChevronRight, Landmark, Building2, Users, RefreshCcw, Pen, Clock, X, Pencil } from 'lucide-react'
 import { COL, addCustomer, updateCustomer } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
@@ -55,20 +55,28 @@ const CATEGORY_ORDER = ['gov', 'stationed', 'regular', 'designer', 'peer', 'temp
 
 // ─── Site row ─────────────────────────────────────────────────────────────────
 function SiteRow({ site }) {
+  const hasGeo  = Number(site.lat) || Number(site.lng) || Number(site.area)
   return (
     <div className="flex items-start gap-3 py-2.5 pl-8 pr-4 border-t border-gray-100 bg-gray-50">
       <MapPin size={14} className="text-brand-500 mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-700">{site.name}</p>
-        <p className="text-xs text-gray-500 truncate">{site.address}</p>
-        <p className="text-xs text-gray-400">GPS: {site.lat.toFixed(4)}, {site.lng.toFixed(4)} · {site.area} ㎡</p>
+        {site.address && <p className="text-xs text-gray-500 truncate">{site.address}</p>}
+        {hasGeo && (
+          <p className="text-xs text-gray-400">
+            GPS: {Number(site.lat || 0).toFixed(4)}, {Number(site.lng || 0).toFixed(4)} · {Number(site.area || 0)} ㎡
+          </p>
+        )}
+        {site.contractTitle && (
+          <p className="text-[11px] text-gray-400 mt-0.5">來自合約：{site.contractTitle}</p>
+        )}
       </div>
     </div>
   )
 }
 
 // ─── Customer card ────────────────────────────────────────────────────────────
-function CustomerCard({ customer, onEdit }) {
+function CustomerCard({ customer, sites = [], onEdit }) {
   const [expanded, setExpanded] = useState(false)
   const cat = CATEGORY[customer.category] || CATEGORY.regular
   const CatIcon = cat.icon
@@ -99,7 +107,7 @@ function CustomerCard({ customer, onEdit }) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="badge badge-blue">{customer.sites?.length ?? 0} 個案場</span>
+          <span className="badge badge-blue">{sites.length} 個案場</span>
           <button
             className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors text-gray-400 hover:text-gray-600"
             onClick={e => { e.stopPropagation(); onEdit(customer) }}
@@ -113,15 +121,20 @@ function CustomerCard({ customer, onEdit }) {
         </div>
       </div>
 
-      {expanded && customer.sites?.map(site => (
-        <SiteRow key={site.id} site={site} />
+      {expanded && sites.length === 0 && (
+        <div className="px-8 py-3 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">
+          尚無案場（建立年度合約或單次訂單後自動顯示）
+        </div>
+      )}
+      {expanded && sites.map(site => (
+        <SiteRow key={`${site.contractId || 'c'}-${site.id}`} site={site} />
       ))}
     </div>
   )
 }
 
 // ─── Category section ─────────────────────────────────────────────────────────
-function CategorySection({ categoryKey, customers, onEdit }) {
+function CategorySection({ categoryKey, customers, sitesByCustomer, onEdit }) {
   const cat = CATEGORY[categoryKey]
   if (!cat || customers.length === 0) return null
   const CatIcon = cat.icon
@@ -137,7 +150,14 @@ function CategorySection({ categoryKey, customers, onEdit }) {
         </span>
         <div className="flex-1 h-px bg-gray-200 ml-1" />
       </div>
-      {customers.map(c => <CustomerCard key={c.id} customer={c} onEdit={onEdit} />)}
+      {customers.map(c => (
+        <CustomerCard
+          key={c.id}
+          customer={c}
+          sites={sitesByCustomer[c.id] || []}
+          onEdit={onEdit}
+        />
+      ))}
     </div>
   )
 }
@@ -153,7 +173,25 @@ export default function CustomersPage() {
   const [saving, setSaving]       = useState(false)
   const [err, setErr]             = useState('')
 
-  const { data: customers } = useCollection(COL.CUSTOMERS)
+  const { data: customers }       = useCollection(COL.CUSTOMERS)
+  const { data: annualContracts } = useCollection(COL.ANNUAL_CONTRACTS)
+
+  // 案場以「合約」為單一真實來源，依 customerId 聚合（避免 customer.sites 不同步問題）
+  const sitesByCustomer = useMemo(() => {
+    const map = {}
+    annualContracts.forEach(c => {
+      if (!c.customerId) return
+      const arr = map[c.customerId] || []
+      const seenNames = new Set(arr.map(s => s.name))
+      ;(c.sites || []).forEach(s => {
+        if (!s.name || seenNames.has(s.name)) return
+        arr.push({ ...s, contractId: c.id, contractTitle: c.title })
+        seenNames.add(s.name)
+      })
+      map[c.customerId] = arr
+    })
+    return map
+  }, [annualContracts])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -216,7 +254,7 @@ export default function CustomersPage() {
     .filter(c => c.name?.includes(search) || c.contact?.includes(search))
     .filter(c => filterCat === 'all' || c.category === filterCat)
 
-  const totalSites = allCustomers.reduce((s, c) => s + c.sites.length, 0)
+  const totalSites = allCustomers.reduce((s, c) => s + (sitesByCustomer[c.id]?.length || 0), 0)
 
   // Count per category (from unfiltered org list, for tab badges)
   const orgCustomers = customers.filter(c => c.orgId === activeOrgId)
@@ -289,13 +327,21 @@ export default function CustomersPage() {
               key={key}
               categoryKey={key}
               customers={allCustomers.filter(c => c.category === key)}
+              sitesByCustomer={sitesByCustomer}
               onEdit={openEdit}
             />
           ))}
         </div>
       ) : (
         <div className="space-y-3">
-          {allCustomers.map(c => <CustomerCard key={c.id} customer={c} onEdit={openEdit} />)}
+          {allCustomers.map(c => (
+            <CustomerCard
+              key={c.id}
+              customer={c}
+              sites={sitesByCustomer[c.id] || []}
+              onEdit={openEdit}
+            />
+          ))}
         </div>
       )}
 
