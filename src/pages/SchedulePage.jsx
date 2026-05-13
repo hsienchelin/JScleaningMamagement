@@ -21,6 +21,7 @@ import {
 } from '../lib/db'
 import { useCollection } from '../hooks/useCollection'
 import { useOrg } from '../contexts/OrgContext'
+import { getContractLifecycleStatus, isTaskDueInMonth } from '../utils/contractSchema'
 import clsx from 'clsx'
 
 // ─── Shared contexts ──────────────────────────────────────────────────────────
@@ -1682,25 +1683,32 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
   const currentYear  = new Date().getFullYear()
 
   // Collect all current-month periodic tasks across all contracts
+  // 條件：
+  //   1. 合約必須是「進行中」（排除已結束 / 未開始的合約 → 不再被歷史合約糾纏）
+  //   2. 任務本月必須仍需執行（isTaskDueInMonth 內含完成判斷，已完成的不再提醒）
+  //      · fixed 類：本月不在 completedMonths
+  //      · range 類：候選月份內任一月已完成 → 整個區間視為完成，全部不再提醒
+  //      · once 類：completedMonths 有任何月份 → 整年不再提醒
   const periodicDueTasks = useMemo(() => {
-    return annualContracts.flatMap(contract =>
-      (contract.sites || []).flatMap(site =>
-        (site.periodicTasks || [])
-          .filter(task => (task.months || []).includes(currentMonth))
-          .map(task => ({
-            key:           `${contract.id}_${site.id}_${task.id}`,
-            taskId:        task.id,
-            siteId:        site.id,
-            siteName:      site.name,
-            contractId:    contract.id,
-            contractTitle: contract.title,
-            customerName:  contract.customerName,
-            taskName:      task.name,
-            unitPrice:     task.unitPrice || 0,
-            completed:     task.completedMonths?.includes(currentMonth),
-          }))
+    return annualContracts
+      .filter(contract => getContractLifecycleStatus(contract) === 'active')
+      .flatMap(contract =>
+        (contract.sites || []).flatMap(site =>
+          (site.periodicTasks || [])
+            .filter(task => isTaskDueInMonth(task, currentMonth))
+            .map(task => ({
+              key:           `${contract.id}_${site.id}_${task.id}`,
+              taskId:        task.id,
+              siteId:        site.id,
+              siteName:      site.name,
+              contractId:    contract.id,
+              contractTitle: contract.title,
+              customerName:  contract.customerName,
+              taskName:      task.name,
+              unitPrice:     task.unitPrice || 0,
+            }))
+        )
       )
-    )
   }, [annualContracts, currentMonth])
 
   // Build per-employee color map (stable order)
@@ -1862,7 +1870,7 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
                 <div key={task.key} className="px-4 py-3 flex flex-wrap items-center gap-3">
                   <div className={clsx(
                     'w-2 h-2 rounded-full shrink-0',
-                    task.completed ? 'bg-green-400' : scheduled ? 'bg-teal-400' : 'bg-amber-400',
+                    scheduled ? 'bg-teal-400' : 'bg-amber-400',
                   )} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800">{task.taskName}</p>
@@ -1870,9 +1878,7 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
                       {task.siteName} · {task.customerName} · ${task.unitPrice.toLocaleString()}/次
                     </p>
                   </div>
-                  {task.completed ? (
-                    <span className="badge bg-green-100 text-green-700 text-[11px]">已完成</span>
-                  ) : scheduled ? (
+                  {scheduled ? (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1 flex items-center gap-1.5">
                         <CalIcon size={11} /> 已排：{scheduled}
@@ -1909,7 +1915,7 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
           <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 flex items-center gap-4 text-[11px] text-gray-400">
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> 待安排</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-teal-400 inline-block" /> 已排（顯示於月曆）</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /> 已完成</span>
+            <span className="text-gray-300 ml-auto">本月已完成的任務不會出現在此處</span>
           </div>
         </div>
       )}
