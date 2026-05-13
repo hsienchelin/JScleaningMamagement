@@ -213,11 +213,14 @@ export default function CustomersPage() {
   const { data: annualContracts } = useCollection(COL.ANNUAL_CONTRACTS)
   const { data: orders }          = useCollection(COL.ORDERS)
 
-  // 案場以「合約」為單一真實來源，依 customerId 聚合（避免 customer.sites 不同步問題）
+  // 案場以「合約」為單一真實來源，只統計「進行中」的合約（已結束/已取消歸歷史頁）
   const sitesByCustomer = useMemo(() => {
     const map = {}
     annualContracts.forEach(c => {
       if (!c.customerId) return
+      const status = c.status || 'active'
+      // 排除已結束 / 已完成 / 已取消
+      if (status === 'ended' || status === 'completed' || status === 'cancelled') return
       const arr = map[c.customerId] || []
       const seenNames = new Set(arr.map(s => s.name))
       ;(c.sites || []).forEach(s => {
@@ -230,11 +233,13 @@ export default function CustomersPage() {
     return map
   }, [annualContracts])
 
-  // 單次案件（訂單）依 customerId 聚合 — 給設計師/同行/臨時類客戶看到案件數
+  // 單次案件（訂單）依 customerId 聚合，只統計「未完成」的訂單
   const ordersByCustomer = useMemo(() => {
     const map = {}
     orders.forEach(o => {
       if (!o.customerId) return
+      // 排除已完成訂單（closed）— 已收尾結案的不算
+      if (o.status === 'closed') return
       const arr = map[o.customerId] || []
       arr.push(o)
       map[o.customerId] = arr
