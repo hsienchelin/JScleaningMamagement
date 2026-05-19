@@ -1678,8 +1678,8 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
   const [detailItem, setDetail]       = useState(null)
   const [filterEmp, setFilterEmp]     = useState('all')
   const [filterStatus, setStatus]     = useState('all')
-  const [periodicFilterContract, setPeriodicFilterContract] = useState('all')
-  const [periodicFilterSite,     setPeriodicFilterSite]     = useState('all')
+  const [periodicFilterContract, setPeriodicFilterContract] = useState('')
+  const [periodicFilterSite,     setPeriodicFilterSite]     = useState('')
 
   const currentMonth = new Date().getMonth() + 1
   const currentYear  = new Date().getFullYear()
@@ -1783,19 +1783,21 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
   const periodicSiteOptions = useMemo(() => {
     const map = new Map()
     periodicDueTasks
-      .filter(t => periodicFilterContract === 'all' || t.contractId === periodicFilterContract)
+      .filter(t => !periodicFilterContract || periodicFilterContract === 'all' || t.contractId === periodicFilterContract)
       .forEach(t => {
         if (!map.has(t.siteId)) map.set(t.siteId, { id: t.siteId, name: t.siteName })
       })
     return [...map.values()]
   }, [periodicDueTasks, periodicFilterContract])
 
-  const filteredPeriodicDueTasks = useMemo(() =>
-    periodicDueTasks.filter(t =>
+  // 未選擇合約時不顯示任何任務（讓頁面保持精簡）
+  const filteredPeriodicDueTasks = useMemo(() => {
+    if (!periodicFilterContract) return []
+    return periodicDueTasks.filter(t =>
       (periodicFilterContract === 'all' || t.contractId === periodicFilterContract) &&
-      (periodicFilterSite     === 'all' || t.siteId     === periodicFilterSite)
+      (!periodicFilterSite || periodicFilterSite === 'all' || t.siteId === periodicFilterSite)
     )
-  , [periodicDueTasks, periodicFilterContract, periodicFilterSite])
+  }, [periodicDueTasks, periodicFilterContract, periodicFilterSite])
 
   return (
     <div className="space-y-4">
@@ -1884,7 +1886,7 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
                 本月週期任務提醒
               </p>
               <span className="text-xs text-teal-500">
-                {currentYear}年{currentMonth}月 · 共 {filteredPeriodicDueTasks.length}{filteredPeriodicDueTasks.length !== periodicDueTasks.length && ` / ${periodicDueTasks.length}`} 項
+                {currentYear}年{currentMonth}月 · {periodicFilterContract ? `顯示 ${filteredPeriodicDueTasks.length} / ${periodicDueTasks.length}` : `共 ${periodicDueTasks.length}`} 項
               </span>
             </div>
             <div className="flex items-center gap-2 ml-auto">
@@ -1893,23 +1895,26 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
                 value={periodicFilterContract}
                 onChange={e => {
                   setPeriodicFilterContract(e.target.value)
-                  setPeriodicFilterSite('all')
+                  setPeriodicFilterSite('')
                 }}
               >
-                <option value="all">全部合約</option>
+                <option value="">請選擇合約</option>
                 {periodicContractOptions.map(c => (
                   <option key={c.id} value={c.id}>{c.label}</option>
                 ))}
+                <option value="all">全部合約</option>
               </select>
               <select
                 className="input text-xs py-1 px-2 w-auto max-w-[140px]"
                 value={periodicFilterSite}
                 onChange={e => setPeriodicFilterSite(e.target.value)}
+                disabled={!periodicFilterContract}
               >
-                <option value="all">全部案場</option>
+                <option value="">請選擇案場</option>
                 {periodicSiteOptions.map(s => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
+                <option value="all">全部案場</option>
               </select>
               {unscheduledCount > 0 && (
                 <span className="badge bg-amber-100 text-amber-700 text-[11px]">
@@ -1919,6 +1924,11 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
             </div>
           </div>
           <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto">
+            {!periodicFilterContract && (
+              <p className="px-4 py-6 text-center text-xs text-gray-400">
+                請先選擇合約以檢視本月待提醒的週期任務
+              </p>
+            )}
             {filteredPeriodicDueTasks.map(task => {
               const scheduled = periodicSchedules[task.key]
               return (
