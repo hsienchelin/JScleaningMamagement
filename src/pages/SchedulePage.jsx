@@ -1678,6 +1678,8 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
   const [detailItem, setDetail]       = useState(null)
   const [filterEmp, setFilterEmp]     = useState('all')
   const [filterStatus, setStatus]     = useState('all')
+  const [periodicFilterContract, setPeriodicFilterContract] = useState('all')
+  const [periodicFilterSite,     setPeriodicFilterSite]     = useState('all')
 
   const currentMonth = new Date().getMonth() + 1
   const currentYear  = new Date().getFullYear()
@@ -1767,6 +1769,34 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
   const pendingCount = filtered.filter(d => d.status === 'pending').length
   const unscheduledCount = periodicDueTasks.filter(t => !periodicSchedules[t.key] && !t.completed).length
 
+  // 合約 / 案場 下拉選單來源（僅顯示本月有提醒的）
+  const periodicContractOptions = useMemo(() => {
+    const map = new Map()
+    periodicDueTasks.forEach(t => {
+      if (!map.has(t.contractId)) {
+        map.set(t.contractId, { id: t.contractId, label: `${t.customerName} · ${t.contractTitle}` })
+      }
+    })
+    return [...map.values()]
+  }, [periodicDueTasks])
+
+  const periodicSiteOptions = useMemo(() => {
+    const map = new Map()
+    periodicDueTasks
+      .filter(t => periodicFilterContract === 'all' || t.contractId === periodicFilterContract)
+      .forEach(t => {
+        if (!map.has(t.siteId)) map.set(t.siteId, { id: t.siteId, name: t.siteName })
+      })
+    return [...map.values()]
+  }, [periodicDueTasks, periodicFilterContract])
+
+  const filteredPeriodicDueTasks = useMemo(() =>
+    periodicDueTasks.filter(t =>
+      (periodicFilterContract === 'all' || t.contractId === periodicFilterContract) &&
+      (periodicFilterSite     === 'all' || t.siteId     === periodicFilterSite)
+    )
+  , [periodicDueTasks, periodicFilterContract, periodicFilterSite])
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -1847,24 +1877,49 @@ function MobileView({ dispatches, annualContracts = [], periodicSchedules, setPe
       {/* ── 本月週期任務提醒 ── */}
       {periodicDueTasks.length > 0 && (
         <div className="card overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-teal-50/60 flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-gray-100 bg-teal-50/60 flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <Layers size={15} className="text-teal-600" />
               <p className="text-sm font-semibold text-teal-800">
                 本月週期任務提醒
               </p>
               <span className="text-xs text-teal-500">
-                {currentYear}年{currentMonth}月 · 共 {periodicDueTasks.length} 項
+                {currentYear}年{currentMonth}月 · 共 {filteredPeriodicDueTasks.length}{filteredPeriodicDueTasks.length !== periodicDueTasks.length && ` / ${periodicDueTasks.length}`} 項
               </span>
             </div>
-            {unscheduledCount > 0 && (
-              <span className="badge bg-amber-100 text-amber-700 text-[11px]">
-                {unscheduledCount} 項待安排施作日
-              </span>
-            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <select
+                className="input text-xs py-1 px-2 w-auto max-w-[180px]"
+                value={periodicFilterContract}
+                onChange={e => {
+                  setPeriodicFilterContract(e.target.value)
+                  setPeriodicFilterSite('all')
+                }}
+              >
+                <option value="all">全部合約</option>
+                {periodicContractOptions.map(c => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+              <select
+                className="input text-xs py-1 px-2 w-auto max-w-[140px]"
+                value={periodicFilterSite}
+                onChange={e => setPeriodicFilterSite(e.target.value)}
+              >
+                <option value="all">全部案場</option>
+                {periodicSiteOptions.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              {unscheduledCount > 0 && (
+                <span className="badge bg-amber-100 text-amber-700 text-[11px]">
+                  {unscheduledCount} 項待安排
+                </span>
+              )}
+            </div>
           </div>
-          <div className="divide-y divide-gray-50">
-            {periodicDueTasks.map(task => {
+          <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto">
+            {filteredPeriodicDueTasks.map(task => {
               const scheduled = periodicSchedules[task.key]
               return (
                 <div key={task.key} className="px-4 py-3 flex flex-wrap items-center gap-3">
