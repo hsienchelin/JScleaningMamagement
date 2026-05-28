@@ -113,6 +113,7 @@ export function calcAllInsurance({
   employeePensionRate = 0,
   daysWorked = 30,        // 在職天數（用於月中離職比例）
   leftMidMonth = false,    // 是否月中離職（健保該月雇主不負擔）
+  healthSelfPayExempt = false, // 員工免健保自付（例如年長者政府代繳）；雇主端仍照常負擔
 }) {
   const basicWage = rates.basicWage || 29500
   const laborBracket        = insuredLabor  ? getLaborBracket(baseSalary, laborBrackets, isPartTime, basicWage) : 0
@@ -130,7 +131,7 @@ export function calcAllInsurance({
     laborEmployerLabor:  prorateByDays(labor.laborOnly, daysWorked),
     occupational:        prorateByDays(labor.occupational, daysWorked),
     laborEmployerTotal:  prorateByDays(labor.employer, daysWorked),
-    healthEmployee:      health.employee,
+    healthEmployee:      healthSelfPayExempt ? 0 : health.employee,
     healthEmployer:      leftMidMonth ? 0 : health.employer,
     pensionEmployer:     prorateByDays(pension.employer, daysWorked),
     pensionEmployee:     prorateByDays(pension.employee, daysWorked),

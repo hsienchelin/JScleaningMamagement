@@ -175,6 +175,7 @@ function PaySlipModal({ record: initRecord, employee, onClose, onUpdate }) {
       isPartTime: !!employee.isPartTime,
       hasReceivedPension: !!employee.hasReceivedPension,
       dependentCount: Number(employee.dependentCount) || 0,
+      healthSelfPayExempt: !!employee.healthSelfPayExempt,
       daysWorked: insuredDays,
       leftMidMonth,
     })
