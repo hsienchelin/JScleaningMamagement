@@ -71,7 +71,9 @@ export function calcLabor(laborBracket, occupationalBracket, rates, hasReceivedP
  */
 export function calcHealth(bracket, rates, dependentCount = 0) {
   if (!bracket) return { employee: 0, employer: 0 }
-  const employee = round(bracket * rates.healthRate * rates.healthEmployeePct * (1 + dependentCount))
+  // 健保局算法：先 round 單人保費再 × (本人+眷屬數)，避免兩次四捨五入累積誤差
+  const employeePerPerson = round(bracket * rates.healthRate * rates.healthEmployeePct)
+  const employee = employeePerPerson * (1 + dependentCount)
   const employer = round(bracket * rates.healthRate * rates.healthEmployerPct * rates.dependentAvg)
   return { employee, employer }
 }
