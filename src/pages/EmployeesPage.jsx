@@ -613,7 +613,7 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
     isPartTime: form.isPartTime,
     hasReceivedPension: form.hasReceivedPension,
     dependentCount: Number(form.dependentCount) || 0,
-    healthSelfPayExempt: form.healthSelfPayExempt,
+    healthSelfPayDiscount: Number(form.healthSelfPayDiscount) || 0,
   })
 
   return (
@@ -680,15 +680,17 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
             />
           </div>
           <div>
-            <label className="label">健保員工自付</label>
-            <label className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 mt-1">
-              <input
-                type="checkbox"
-                checked={!!form.healthSelfPayExempt}
-                onChange={e => set('healthSelfPayExempt', e.target.checked)}
-              />
-              <span className="text-sm">免自付額（年長者政府代繳）</span>
-            </label>
+            <label className="label">健保自付政府補助</label>
+            <select
+              className="input"
+              value={Number(form.healthSelfPayDiscount) || 0}
+              onChange={e => set('healthSelfPayDiscount', Number(e.target.value))}
+            >
+              <option value={0}>無（全額自付）</option>
+              <option value={25}>身障輕度（補助 25%）</option>
+              <option value={50}>身障中度（補助 50%）</option>
+              <option value={100}>身障重度·極重度／年長代繳（全免）</option>
+            </select>
           </div>
         </div>
       )}
@@ -734,16 +736,16 @@ function buildInsuranceFields(form, settings) {
     isPartTime: !!form.isPartTime,
     hasReceivedPension: !!form.hasReceivedPension,
     dependentCount: Number(form.dependentCount) || 0,
-    healthSelfPayExempt: !!form.healthSelfPayExempt,
+    healthSelfPayDiscount: Number(form.healthSelfPayDiscount) || 0,
   })
   return {
     // 使用者輸入旗標
-    insuredLabor:        !!form.insuredLabor,
-    insuredHealth:       !!form.insuredHealth,
-    isPartTime:          !!form.isPartTime,
-    hasReceivedPension:  !!form.hasReceivedPension,
-    dependentCount:      Number(form.dependentCount) || 0,
-    healthSelfPayExempt: !!form.healthSelfPayExempt,
+    insuredLabor:          !!form.insuredLabor,
+    insuredHealth:         !!form.insuredHealth,
+    isPartTime:            !!form.isPartTime,
+    hasReceivedPension:    !!form.hasReceivedPension,
+    dependentCount:        Number(form.dependentCount) || 0,
+    healthSelfPayDiscount: Number(form.healthSelfPayDiscount) || 0,
     insuredSalary,
     // 投保金額（沿用舊欄位名稱以相容薪資頁）
     laborInsuredSalary:      calc.laborBracket,
@@ -773,7 +775,7 @@ function AddModal({ onClose, allSites }) {
     insuredLabor: true, insuredHealth: true,
     isPartTime: false, hasReceivedPension: false,
     dependentCount: 0,
-    healthSelfPayExempt: false,
+    healthSelfPayDiscount: 0,
     insuredSalary: settings.rates.basicWage,
     bankCode: '', bankAccount: '',
   })
@@ -1024,9 +1026,10 @@ function EditModal({ emp, onClose, allSites }) {
     insuredLabor:        emp.insuredLabor  ?? true,
     insuredHealth:       emp.insuredHealth ?? true,
     isPartTime:          emp.isPartTime ?? false,
-    hasReceivedPension:  emp.hasReceivedPension ?? false,
-    dependentCount:      emp.dependentCount ?? 0,
-    healthSelfPayExempt: emp.healthSelfPayExempt ?? false,
+    hasReceivedPension:    emp.hasReceivedPension ?? false,
+    dependentCount:        emp.dependentCount ?? 0,
+    // 向後相容：舊 boolean healthSelfPayExempt=true → 100% 補助
+    healthSelfPayDiscount: emp.healthSelfPayDiscount ?? (emp.healthSelfPayExempt ? 100 : 0),
     insuredSalary:       emp.insuredSalary || emp.laborInsuredSalary || settings.rates.basicWage,
     bankCode:               emp.bankCode    || '',
     bankAccount:            emp.bankAccount || '',
