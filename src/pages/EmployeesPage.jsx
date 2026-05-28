@@ -671,7 +671,7 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
       {form.insuredHealth && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">健保眷屬人數（不含本人，預設 0）</label>
+            <label className="label">健保眷屬人數</label>
             <input
               className="input"
               type="number" min="0" max="3" step="1"
