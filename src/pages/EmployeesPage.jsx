@@ -686,7 +686,7 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
           <Row label="勞保投保金額"   value={calc.laborBracket} />
           <Row label="健保投保金額"   value={calc.healthBracket} />
           <Row label="勞保員工自付"   value={calc.laborEmployee} />
-          <Row label="勞保單位負擔"   value={calc.laborEmployerTotal} sub={`含職災 ${calc.occupational}`} />
+          <Row label="勞保單位負擔"   value={calc.laborEmployerTotal} sub={`含職災 ${calc.occupational}${calc.occupationalBracket !== calc.laborBracket ? `，投保 ${calc.occupationalBracket?.toLocaleString()}` : ''}`} />
           <Row label="健保員工自付"   value={calc.healthEmployee} />
           <Row label="健保單位負擔"   value={calc.healthEmployer} />
           <Row label="勞退提撥（雇主 6%）" value={calc.pensionEmployer} />

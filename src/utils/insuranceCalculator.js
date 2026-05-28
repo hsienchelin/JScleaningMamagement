@@ -36,20 +36,29 @@ export function getHealthBracket(salary, healthSettings, basicWage = 29500) {
   return findBracket(healthSettings?.brackets || [], target)
 }
 
+/** 取得職災投保金額（部分工時也適用基本工資最低保障）*/
+export function getOccupationalBracket(salary, laborSettings, isPartTime, basicWage = 29500) {
+  const allBrackets = isPartTime
+    ? [...(laborSettings?.partTime || []), ...(laborSettings?.brackets || [])]
+    : (laborSettings?.brackets || [])
+  const target = Math.max(salary, basicWage)
+  return findBracket(allBrackets, target)
+}
+
 /**
  * 計算勞保
- * @param {number} bracket - 月投保金額
+ * @param {number} laborBracket        - 勞保（普通事故）月投保金額
+ * @param {number} occupationalBracket - 職災月投保金額（部分工時可能 >= laborBracket）
  * @param {object} rates - PAYROLL_RATES_2026 同形狀
  * @param {boolean} hasReceivedPension - 已領老年給付
  */
-export function calcLabor(bracket, rates, hasReceivedPension = false) {
-  if (!bracket) return { employee: 0, employer: 0, occupational: 0 }
-  const occupational = round(bracket * rates.occupationalRate)
-  if (hasReceivedPension) {
+export function calcLabor(laborBracket, occupationalBracket, rates, hasReceivedPension = false) {
+  const occupational = occupationalBracket ? round(occupationalBracket * rates.occupationalRate) : 0
+  if (!laborBracket || hasReceivedPension) {
     return { employee: 0, employer: occupational, occupational, laborOnly: 0 }
   }
-  const employee = round(bracket * rates.laborRate * rates.laborEmployeePct)
-  const laborOnly = round(bracket * rates.laborRate * rates.laborEmployerPct)
+  const employee = round(laborBracket * rates.laborRate * rates.laborEmployeePct)
+  const laborOnly = round(laborBracket * rates.laborRate * rates.laborEmployerPct)
   const employer = laborOnly + occupational
   return { employee, employer, occupational, laborOnly }
 }
@@ -87,7 +96,7 @@ export function prorateByDays(amount, daysWorked) {
 
 /**
  * 一鍵算出所有保險金額
- * @returns {{ laborEmployee, laborEmployerLabor, occupational, laborEmployerTotal, healthEmployee, healthEmployer, pensionEmployer, laborBracket, healthBracket }}
+ * @returns {{ laborEmployee, laborEmployerLabor, occupational, laborEmployerTotal, healthEmployee, healthEmployer, pensionEmployer, laborBracket, healthBracket, occupationalBracket }}
  */
 export function calcAllInsurance({
   baseSalary,
@@ -104,16 +113,17 @@ export function calcAllInsurance({
   leftMidMonth = false,    // 是否月中離職（健保該月雇主不負擔）
 }) {
   const basicWage = rates.basicWage || 29500
-  const laborBracket  = insuredLabor  ? getLaborBracket(baseSalary, laborBrackets, isPartTime, basicWage) : 0
-  const healthBracket = insuredHealth ? getHealthBracket(baseSalary, healthBrackets, basicWage) : 0
+  const laborBracket        = insuredLabor  ? getLaborBracket(baseSalary, laborBrackets, isPartTime, basicWage) : 0
+  const occupationalBracket = insuredLabor  ? getOccupationalBracket(baseSalary, laborBrackets, isPartTime, basicWage) : 0
+  const healthBracket       = insuredHealth ? getHealthBracket(baseSalary, healthBrackets, basicWage) : 0
 
-  const labor   = calcLabor(laborBracket, rates, hasReceivedPension)
+  const labor   = calcLabor(laborBracket, occupationalBracket, rates, hasReceivedPension)
   const health  = calcHealth(healthBracket, rates, dependentCount)
   const pension = calcPension(laborBracket, rates, employeePensionRate)
 
   // 比例計算（勞保 / 勞退按在職天數比例；健保月中離職則該月雇主不負擔）
   return {
-    laborBracket, healthBracket,
+    laborBracket, healthBracket, occupationalBracket,
     laborEmployee:       prorateByDays(labor.employee, daysWorked),
     laborEmployerLabor:  prorateByDays(labor.laborOnly, daysWorked),
     occupational:        prorateByDays(labor.occupational, daysWorked),
