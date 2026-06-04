@@ -3417,6 +3417,17 @@ export default function OrdersPage() {
     setFormErr('')
     try {
       const siteName = siteId === 'new' ? newSiteName.trim() : (customerSites.find(s => s.id === siteId)?.name || '')
+
+      // 新案場同步寫回客戶文件（依名稱去重），員工選案場時才撈得到
+      if (siteId === 'new' && siteName && !customerSites.some(s => s.name === siteName)) {
+        await updateCustomer(customerId, {
+          sites: [
+            ...customerSites,
+            { id: `site-${Date.now()}`, name: siteName, address: newSiteAddress.trim(), lat: 0, lng: 0, area: 0 },
+          ],
+        })
+      }
+
       // 標題改用「客戶 · 案場」（不再帶清潔類型，工務請款單會記錄實際做的項目）
       const titleParts = [selectedCustomer?.name, siteName].filter(Boolean)
       await addOrder({

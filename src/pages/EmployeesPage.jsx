@@ -1312,10 +1312,20 @@ export default function EmployeesPage() {
   // ─ Firestore 即時資料 ──────────────────────────────────────────────────────
   const { data: employees, loading } = useCollection(COL.EMPLOYEES)
   const { data: customers } = useCollection(COL.CUSTOMERS)
-  const allSites = useMemo(() =>
-    customers.flatMap(c => (c.sites || []).map(s => ({ ...s, customerName: c.name }))),
-    [customers]
-  )
+  const { data: annualContracts } = useCollection(COL.ANNUAL_CONTRACTS)
+  // 案場來源：客戶文件 sites + 年度合約 sites（依名稱去重）
+  // 兩處都納入，避免合約案場未同步回客戶時，員工選不到該案場
+  const allSites = useMemo(() => {
+    const byName = new Map()
+    const add = (site, customerName) => {
+      const name = (site?.name || '').trim()
+      if (!name || byName.has(name)) return
+      byName.set(name, { ...site, name, customerName: customerName || '' })
+    }
+    customers.forEach(c => (c.sites || []).forEach(s => add(s, c.name)))
+    annualContracts.forEach(ct => (ct.sites || []).forEach(s => add(s, ct.customerName)))
+    return [...byName.values()]
+  }, [customers, annualContracts])
 
   // ─ Stats ──────────────────────────────────────────────────────────────────
   const active   = employees.filter(e => e.status === 'active')
