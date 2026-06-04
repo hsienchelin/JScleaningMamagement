@@ -667,20 +667,22 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
         </div>
       </div>
 
-      {/* 健保眷屬 + 免自付額 */}
-      {form.insuredHealth && (
+      {/* 健保眷屬 + 勞健保自付政府補助 */}
+      {(form.insuredHealth || form.insuredLabor) && (
         <div className="grid grid-cols-2 gap-3">
+          {form.insuredHealth && (
+            <div>
+              <label className="label">健保眷屬人數</label>
+              <input
+                className="input"
+                type="number" min="0" max="3" step="1"
+                value={form.dependentCount}
+                onChange={e => set('dependentCount', e.target.value)}
+              />
+            </div>
+          )}
           <div>
-            <label className="label">健保眷屬人數</label>
-            <input
-              className="input"
-              type="number" min="0" max="3" step="1"
-              value={form.dependentCount}
-              onChange={e => set('dependentCount', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">健保自付政府補助</label>
+            <label className="label">勞健保自付政府補助</label>
             <select
               className="input"
               value={Number(form.healthSelfPayDiscount) || 0}

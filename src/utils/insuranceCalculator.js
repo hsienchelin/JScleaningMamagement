@@ -79,12 +79,12 @@ export function calcHealth(bracket, rates, dependentCount = 0) {
 }
 
 /**
- * 套用健保員工自付的政府補助減免
+ * 套用勞健保員工自付的政府補助減免（身障補助同時適用勞保與健保自付額）
  * @param {number} employee - 員工原本應付金額
  * @param {number} discountPct - 補助 %（0/25/50/100，分別對應全額自付/身障輕度/身障中度/身障重度·全免）
  * 健保局：減免後金額仍以整數元計，使用四捨五入。
  */
-export function applyHealthDiscount(employee, discountPct = 0) {
+export function applySelfPayDiscount(employee, discountPct = 0) {
   if (!employee) return 0
   const pct = Math.max(0, Math.min(100, Number(discountPct) || 0))
   if (pct === 0)   return employee
@@ -127,7 +127,7 @@ export function calcAllInsurance({
   employeePensionRate = 0,
   daysWorked = 30,        // 在職天數（用於月中離職比例）
   leftMidMonth = false,    // 是否月中離職（健保該月雇主不負擔）
-  healthSelfPayDiscount = 0, // 健保員工自付政府補助 % (0/25/50/100)；身障輕/中/重度或年長者代繳
+  healthSelfPayDiscount = 0, // 勞健保員工自付政府補助 % (0/25/50/100)；身障輕/中/重度或年長者代繳，同時減免勞保與健保自付
 }) {
   const basicWage = rates.basicWage || 29500
   const laborBracket        = insuredLabor  ? getLaborBracket(baseSalary, laborBrackets, isPartTime, basicWage) : 0
@@ -141,11 +141,11 @@ export function calcAllInsurance({
   // 比例計算（勞保 / 勞退按在職天數比例；健保月中離職則該月雇主不負擔）
   return {
     laborBracket, healthBracket, occupationalBracket,
-    laborEmployee:       prorateByDays(labor.employee, daysWorked),
+    laborEmployee:       applySelfPayDiscount(prorateByDays(labor.employee, daysWorked), healthSelfPayDiscount),
     laborEmployerLabor:  prorateByDays(labor.laborOnly, daysWorked),
     occupational:        prorateByDays(labor.occupational, daysWorked),
     laborEmployerTotal:  prorateByDays(labor.employer, daysWorked),
-    healthEmployee:      applyHealthDiscount(health.employee, healthSelfPayDiscount),
+    healthEmployee:      applySelfPayDiscount(health.employee, healthSelfPayDiscount),
     healthEmployer:      leftMidMonth ? 0 : health.employer,
     pensionEmployer:     prorateByDays(pension.employer, daysWorked),
     pensionEmployee:     prorateByDays(pension.employee, daysWorked),
