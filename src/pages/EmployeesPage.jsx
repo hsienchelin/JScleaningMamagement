@@ -35,6 +35,14 @@ const OFFICE_TYPE = {
   it_dept:    { label: '資訊部門', badge: 'bg-indigo-100 text-indigo-700' },
 }
 
+// 勞健保自付政府補助選項（本人 & 各眷屬共用）
+const SELF_PAY_DISCOUNT_OPTIONS = [
+  { value: 0,   label: '無（全額自付）' },
+  { value: 25,  label: '身障輕度（補助 25%）' },
+  { value: 50,  label: '身障中度（補助 50%）' },
+  { value: 100, label: '身障重度·極重度／年長代繳（全免）' },
+]
+
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
   active:   { label: '在職',   dot: 'bg-green-400',  badge: 'bg-green-100 text-green-700',  icon: CheckCircle },
@@ -605,6 +613,15 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseSalaryNum, form.isPartTime, allBrackets.length])
 
+  // 眷屬逐口補助：依眷屬人數對齊陣列長度
+  const depCount = Math.max(0, Math.min(3, Number(form.dependentCount) || 0))
+  const depDiscounts = form.dependentDiscounts || []
+  const setDepDiscount = (i, v) => {
+    const next = Array.from({ length: depCount }, (_, k) =>
+      Number(k === i ? v : depDiscounts[k]) || 0)
+    set('dependentDiscounts', next)
+  }
+
   const calc = calcAllInsurance({
     baseSalary: Number(form.insuredSalary) || baseSalaryNum,
     rates, laborBrackets: labor, healthBrackets: health,
@@ -612,8 +629,9 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
     insuredHealth: form.insuredHealth,
     isPartTime: form.isPartTime,
     hasReceivedPension: form.hasReceivedPension,
-    dependentCount: Number(form.dependentCount) || 0,
+    dependentCount: depCount,
     healthSelfPayDiscount: Number(form.healthSelfPayDiscount) || 0,
+    dependentDiscounts: depDiscounts,
   })
 
   return (
@@ -669,31 +687,53 @@ function InsuranceSection({ form, set, baseSalaryNum }) {
 
       {/* 健保眷屬 + 勞健保自付政府補助 */}
       {(form.insuredHealth || form.insuredLabor) && (
-        <div className="grid grid-cols-2 gap-3">
-          {form.insuredHealth && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {form.insuredHealth && (
+              <div>
+                <label className="label">健保眷屬人數</label>
+                <input
+                  className="input"
+                  type="number" min="0" max="3" step="1"
+                  value={form.dependentCount}
+                  onChange={e => set('dependentCount', e.target.value)}
+                />
+              </div>
+            )}
             <div>
-              <label className="label">健保眷屬人數</label>
-              <input
+              <label className="label">勞健保自付政府補助（本人）</label>
+              <select
                 className="input"
-                type="number" min="0" max="3" step="1"
-                value={form.dependentCount}
-                onChange={e => set('dependentCount', e.target.value)}
-              />
+                value={Number(form.healthSelfPayDiscount) || 0}
+                onChange={e => set('healthSelfPayDiscount', Number(e.target.value))}
+              >
+                {SELF_PAY_DISCOUNT_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* 各眷屬健保自付政府補助（逐口設定） */}
+          {form.insuredHealth && depCount > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2 border border-gray-200">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">各眷屬健保自付政府補助</p>
+              {Array.from({ length: depCount }, (_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 w-12 shrink-0">眷屬 {i + 1}</span>
+                  <select
+                    className="input flex-1"
+                    value={Number(depDiscounts[i]) || 0}
+                    onChange={e => setDepDiscount(i, Number(e.target.value))}
+                  >
+                    {SELF_PAY_DISCOUNT_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
             </div>
           )}
-          <div>
-            <label className="label">勞健保自付政府補助</label>
-            <select
-              className="input"
-              value={Number(form.healthSelfPayDiscount) || 0}
-              onChange={e => set('healthSelfPayDiscount', Number(e.target.value))}
-            >
-              <option value={0}>無（全額自付）</option>
-              <option value={25}>身障輕度（補助 25%）</option>
-              <option value={50}>身障中度（補助 50%）</option>
-              <option value={100}>身障重度·極重度／年長代繳（全免）</option>
-            </select>
-          </div>
         </div>
       )}
 
@@ -730,6 +770,10 @@ function Row({ label, value, sub }) {
 function buildInsuranceFields(form, settings) {
   const { rates, labor, health } = settings
   const insuredSalary = Number(form.insuredSalary) || rates.basicWage
+  const dependentCount = Number(form.dependentCount) || 0
+  // 眷屬補助陣列對齊人數（裁掉多餘、補 0）
+  const dependentDiscounts = Array.from({ length: dependentCount }, (_, i) =>
+    Number(form.dependentDiscounts?.[i]) || 0)
   const calc = calcAllInsurance({
     baseSalary: insuredSalary,
     rates, laborBrackets: labor, healthBrackets: health,
@@ -737,8 +781,9 @@ function buildInsuranceFields(form, settings) {
     insuredHealth: !!form.insuredHealth,
     isPartTime: !!form.isPartTime,
     hasReceivedPension: !!form.hasReceivedPension,
-    dependentCount: Number(form.dependentCount) || 0,
+    dependentCount,
     healthSelfPayDiscount: Number(form.healthSelfPayDiscount) || 0,
+    dependentDiscounts,
   })
   return {
     // 使用者輸入旗標
@@ -746,8 +791,9 @@ function buildInsuranceFields(form, settings) {
     insuredHealth:         !!form.insuredHealth,
     isPartTime:            !!form.isPartTime,
     hasReceivedPension:    !!form.hasReceivedPension,
-    dependentCount:        Number(form.dependentCount) || 0,
+    dependentCount,
     healthSelfPayDiscount: Number(form.healthSelfPayDiscount) || 0,
+    dependentDiscounts,
     insuredSalary,
     // 投保金額（沿用舊欄位名稱以相容薪資頁）
     laborInsuredSalary:      calc.laborBracket,
@@ -778,6 +824,7 @@ function AddModal({ onClose, allSites }) {
     isPartTime: false, hasReceivedPension: false,
     dependentCount: 0,
     healthSelfPayDiscount: 0,
+    dependentDiscounts: [],
     insuredSalary: settings.rates.basicWage,
     bankCode: '', bankAccount: '',
   })
@@ -1032,6 +1079,7 @@ function EditModal({ emp, onClose, allSites }) {
     dependentCount:        emp.dependentCount ?? 0,
     // 向後相容：舊 boolean healthSelfPayExempt=true → 100% 補助
     healthSelfPayDiscount: emp.healthSelfPayDiscount ?? (emp.healthSelfPayExempt ? 100 : 0),
+    dependentDiscounts:    emp.dependentDiscounts || [],
     insuredSalary:       emp.insuredSalary || emp.laborInsuredSalary || settings.rates.basicWage,
     bankCode:               emp.bankCode    || '',
     bankAccount:            emp.bankAccount || '',
