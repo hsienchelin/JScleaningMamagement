@@ -20,6 +20,7 @@ export const COL = {
   SHIFT_CODES:        'shiftCodes',
   SALARY_RECORDS:     'salaryRecords',
   MOBILE_DISPATCHES:  'mobileDispatches',
+  DISPATCH_ORDERS:    'dispatchOrders',
   PURCHASES:          'purchases',
   SUPPLIERS:          'suppliers',
   INVENTORY_ITEMS:    'inventoryItems',
@@ -229,6 +230,24 @@ export async function updateWorkOrder(id, data) {
 
 export async function deleteWorkOrder(id) {
   await deleteDoc(doc(db, COL.WORK_ORDERS, id))
+}
+
+// ─── 派工驗收單（派工單 → 驗收 → 轉工務請款）─────────────────────────────────
+// status: 'pending'(待驗收) → 'accepted'(已驗收) → 'billed'(已轉請款)
+export async function addDispatchOrder(data) {
+  return addDoc(collection(db, COL.DISPATCH_ORDERS), {
+    ...data,
+    status: data.status || 'pending',
+    createdAt: serverTimestamp(),
+  })
+}
+
+export async function updateDispatchOrder(id, data) {
+  await updateDoc(doc(db, COL.DISPATCH_ORDERS, id), { ...data, updatedAt: serverTimestamp() })
+}
+
+export async function deleteDispatchOrder(id) {
+  await deleteDoc(doc(db, COL.DISPATCH_ORDERS, id))
 }
 
 // ─── 請款單（應收帳款）────────────────────────────────────────────────────────

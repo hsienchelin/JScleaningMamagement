@@ -7,7 +7,10 @@ import {
   DollarSign, Clock, ArrowRight,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { MOCK_FINANCE, MOCK_ORDERS, MOCK_EMPLOYEES, MOCK_WORK_ORDERS } from '../lib/mockData'
+import { MOCK_FINANCE, MOCK_ORDERS, MOCK_EMPLOYEES } from '../lib/mockData'
+import { useOrg } from '../contexts/OrgContext'
+import { useCollection } from '../hooks/useCollection'
+import { COL } from '../lib/db'
 
 // ─── Stat card ─────────────────────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, sub, color = 'blue', onClick }) {
@@ -97,10 +100,12 @@ function DonutChart({ segments }) {
 // ─── Main page ─────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const { activeOrgId } = useOrg()
+  const { data: dispatchRaw } = useCollection(COL.DISPATCH_ORDERS)
 
   const totalRevenue = MOCK_FINANCE.monthly.reduce((s, m) => s + m.jiaxiang + m.zhexin, 0)
   const activeOrders = MOCK_ORDERS.filter(o => o.status === 'active').length
-  const pendingWO    = MOCK_WORK_ORDERS.filter(w => w.status === 'pending').length
+  const pendingWO    = dispatchRaw.filter(w => w.orgId === activeOrgId && w.status === 'pending').length
 
   // Contracts expiring in next 30 days
   const expiringContracts = MOCK_ORDERS.filter(o => {
